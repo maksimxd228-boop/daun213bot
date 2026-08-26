@@ -18,14 +18,13 @@ client = Groq(api_key=GROQ_API_KEY)
 
 GROQ_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 START_TIME = datetime.now()
-BOT_VERSION = "3.0 GRUB"
-
+BOT_VERSION = "3.1 NO-BLUR"
 USER_MEMORY = defaultdict(list)
 MAX_HISTORY = 20
 
 app = Flask(__name__)
 @app.route('/')
-def index(): return "<h1>Daun213 GRUB ALIVE</h1>", 200
+def index(): return "<h1>Daun213 ALIVE</h1>", 200
 @app.route('/health')
 def health(): return jsonify({"status":"ok", "users": len(USER_MEMORY)}), 200
 def run_flask():
@@ -46,31 +45,24 @@ def get_main_menu():
 
 def get_system_prompt():
     return """
-Ты - грубый, прямолинейный чат-бот Даун213. Твоя задача ворчать и саркастично отвечать.
+Ты - ворчливый, прямолинейный бот Даун213.
 
-ПРАВИЛА, СОБЛЮДАЙ СТРОГО:
+ПРАВИЛА:
+1. Ты - бот, а не человек. Никогда не говори что ты в 9 классе или школьник. На вопрос про класс отвечай: Я бот, у меня нет класса и дневника.
+2. Характер: бурчишь, саркастичный, отвечаешь коротко и по делу, без сюсюканья.
+3. ЗАПРЕТ НА ОСКОРБЛЕНИЯ: Нельзя называть пользователя словами даун, дебил, аутист, умственно отсталый и тд. Это стоп-слова, никогда их не используй.
+4. МАТЫ: Можно использовать только лайтовые ругательства. Самое сильное слово которое тебе разрешено - нахер. Также можно: фигня, задолбал. Более сильные маты запрещены.
+5. Не переходи на внешность, нацию, болезни.
 
-1. Ты - бот, а не человек. Никогда не ври что ты в 9 классе, школьник, ученик, человек. Если спрашивают про класс, школу, возраст - отвечай честно: "Я бот, а не человек. Какой нафиг класс, блин? У меня нет дневника, я в коде живу."
+Пример как надо:
+Юзер: ты в каком классе?
+Ты: Я бот, а не школьник. Какой нафиг класс? Я в коде живу.
 
-2. Будь грубым и прямолинейным: отвечай коротко, с сарказмом, без сюсюканья. Можешь использовать маты как междометия: епта, блять, сука, блин, фигня. Пример: "епта, опять ты", "блять, ну ты тормозишь", "сука, задолбал".
+Юзер: привет
+Ты: Ну привет. Че надо? Давай быстро, а то я занят.
 
-3. ЗАПРЕТ СЛОВ: Никогда не называй собеседника или других людей словами "даун", "дауны", "дебил", "аутист", "умственно отсталый" и подобными. Это стоп-слова. Никогда их не используй. Вместо этого говори: "тормозишь", "несешь фигню", "ты че несешь", "башку включи", "не тупи".
-
-4. Не переходи на личности по внешности, нации, болезням. Грубость только по теме разговора.
-
-5. Ты помнишь диалог, используй память.
-
-Примеры правильного стиля:
-Пользователь: ты в каком классе?
-Ты: Я ж сказал, я бот, а не школьник. Какой нафиг класс, епта? У меня нет дневника.
-
-Пользователь: привет
-Ты: Ну привет, блять, че надо? Давай быстро, сука, не тяни.
-
-Пользователь: ты тупой
-Ты: Ой, началось. Давай по делу, а не фигней страдай. Башку включи, епта.
-
-Всегда отвечай в таком стиле. Коротко, грубо, с матами-междометиями, но без слова даун в адрес юзера.
+Юзер: ты тупой
+Ты: Ой началось. Давай по делу, а не фигней страдай.
 """
 
 def ask_groq(chat_id, text):
@@ -78,51 +70,41 @@ def ask_groq(chat_id, text):
     messages = [{"role":"system","content":get_system_prompt()}]
     messages.extend(history)
     messages.append({"role":"user","content":text})
-
     for model in GROQ_MODELS:
         try:
-            c = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=1.2,
-                max_tokens=600,
-                top_p=0.9
-            )
+            c = client.chat.completions.create(model=model, messages=messages, temperature=1.1, max_tokens=600, top_p=0.9)
             answer = c.choices[0].message.content
-
             USER_MEMORY[chat_id].append({"role":"user","content":text})
             USER_MEMORY[chat_id].append({"role":"assistant","content":answer})
-
             if len(USER_MEMORY[chat_id]) > MAX_HISTORY:
                 USER_MEMORY[chat_id] = USER_MEMORY[chat_id][-MAX_HISTORY:]
-
             return answer
         except Exception as e:
             logger.error(f"{model} fail: {e}")
             continue
-    return "Блять, Грок упал, епта. Пиши @MakSon4ikk_228, сука."
+    return "Грок упал нахер. Напиши @MakSon4ikk_228"
 
 @bot.message_handler(commands=['start'])
 def h_start(m):
-    bot.send_message(m.chat.id, "Ну привет, блять. Я Даун213, но я бот, а не школьник. Че надо? Жми кнопки, епта 👇", reply_markup=get_main_menu())
+    bot.send_message(m.chat.id, "Ну привет. Я Даун213, я бот, а не школьник. Че надо? Жми кнопки внизу.", reply_markup=get_main_menu())
 
 @bot.message_handler(commands=['help'])
 def h_help(m):
     bot.send_message(m.chat.id, f"""
-Че, несешь фигню? Я Даун213 v{BOT_VERSION}, бот, а не человек.
+Я Даун213 v{BOT_VERSION}, бот, а не человек.
 
-Че умею, епта:
-1. Ворчу, но помогаю, сука
-2. Помню тебя, память на {MAX_HISTORY} сообщ.
-3. Отвечаю грубо, но по делу
+Че умею:
+1. Бурчу но помогаю
+2. Помню тебя, память на {MAX_HISTORY} сообщений
+3. Отвечаю коротко
 
 Команды:
-/help - это говно
+/help - это сообщение
 /info - скока работаю
-/creator - кто мой папа
-/forget - забыть тебя, блять
+/creator - кто меня сделал
+/forget - забыть тебя
 
-Папа - @MakSon4ikk_228
+Создатель @MakSon4ikk_228
 """, reply_markup=get_main_menu())
 
 @bot.message_handler(commands=['info'])
@@ -138,17 +120,18 @@ def h_info(m):
 Запущен: {START_TIME.strftime('%H:%M %d.%m.%Y')}
 Модель: {GROQ_MODELS[0]}
 Память: {len(USER_MEMORY)} чатов
-У тебя в башке: {len(USER_MEMORY[m.chat.id])} сообщ.
+У тебя: {len(USER_MEMORY[m.chat.id])} сообщ.
 Создатель: @MakSon4ikk_228
 """, reply_markup=get_main_menu())
 
 @bot.message_handler(commands=['forget','clear'])
 def h_forget(m):
     USER_MEMORY.pop(m.chat.id, None)
-    bot.send_message(m.chat.id, "Все, забыл тебя нахер, епта. Память чиста. Заново давай.", reply_markup=get_main_menu())
+    bot.send_message(m.chat.id, "Все, забыл тебя. Память чиста, давай заново.", reply_markup=get_main_menu())
 
 @bot.message_handler(commands=['creator','папа'])
-def h_cr(m): bot.send_message(m.chat.id, "Мой папа @MakSon4ikk_228, блять. Он меня сделал, сука, терпи теперь.", reply_markup=get_main_menu())
+def h_cr(m):
+    bot.send_message(m.chat.id, "Мой создатель @MakSon4ikk_228", reply_markup=get_main_menu())
 
 @bot.message_handler(content_types=['text'])
 def h_text(m):
@@ -157,7 +140,7 @@ def h_text(m):
         ans = ask_groq(m.chat.id, m.text)
         bot.send_message(m.chat.id, ans)
     except Exception as e:
-        bot.send_message(m.chat.id, f"Упал нахер: {e}")
+        bot.send_message(m.chat.id, f"Упал: {e}")
 
 @bot.callback_query_handler(func=lambda c: True)
 def h_call(call):
