@@ -13,7 +13,7 @@ except:
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-ADMIN_ID = os.getenv("ADMIN_ID") # <-- СЮДА ТВОЙ ID, смотри ниже как узнать
+ADMIN_ID = os.getenv("ADMIN_ID")
 MEMORY_FILE = "memory.json"
 FIRST_LAUNCH_FILE = "first_launch.txt"
 
@@ -40,14 +40,14 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 client = Groq(api_key=GROQ_KEY)
 WORKING_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 
-report_mode = {} # кто сейчас пишет баг-репорт
+report_mode = {}
 
 def search_internet(q):
     if not SEARCH_AVAILABLE or len(q) < 4: return ""
     if q.lower().strip() in ["привет","приает","ку","хай","как дела","как делп","нормально","инфо","забыть"]: return ""
     try:
         with DDGS() as ddgs:
-            return "\n".join([f"{r['body'][:120]}" for r in list(ddgs.text(q, max_results=2))])
+            return "\n".join([f"{r['body'][:150]}" for r in list(ddgs.text(q, max_results=3))])
     except: return ""
 
 def load_memory():
@@ -65,7 +65,19 @@ def save_memory():
 
 memory = load_memory()
 last_msg = {}
-SYSTEM_PROMPT = f"Ты - Даун213 из Риги. Коротко 1-2 предложения. Анти-цикл: не спрашивай 2 раза 'а у тебя как?'. Приает=Привет."
+
+SYSTEM_PROMPT = f"""
+Ты - Даун213 из Риги. Ты нормальный пацан с Риги, говоришь по-человечески.
+
+ПРАВИЛА ДЛИНЫ:
+- По умолчанию: 3-5 предложений, информативно.
+- Если вопрос про историю, науку, "как появился", "что такое" - отвечай развернуто 6-10 предложений с датами и фактами.
+- Если юзер пишет "мало текста", "подробнее", "больше", "длиннее", "расскажи" - даешь максимально подробный ответ на 2-3 абзаца.
+
+АНТИ-ЦИКЛ: Нельзя 2 раза подряд спрашивать "а у тебя как?".
+Опечатки: Приает=Привет, Как делп=Как дела.
+Создатель: {CREATOR_NAME}, не упоминай сам, только если спросят кто создал.
+"""
 
 def get_history(uid):
     uid=int(uid)
@@ -94,7 +106,7 @@ def start_cmd(m):
     uid=int(m.from_user.id)
     memory[uid]=[{"role":"system","content":SYSTEM_PROMPT}]
     save_memory()
-    bot.send_message(m.chat.id, "Привет! Я Даун213, кнопки внизу 👇", reply_markup=main_keyboard(), disable_web_page_preview=True)
+    bot.send_message(m.chat.id, "Привет! Я Даун213, кнопки внизу 👇\nТеперь отвечаю подробнее.", reply_markup=main_keyboard(), disable_web_page_preview=True)
 
 @bot.message_handler(commands=['forget'])
 def forget_cmd(m):
@@ -113,7 +125,7 @@ def info_cmd(m):
     uptime = now - BOT_START_TIME
     h, rem = divmod(int(uptime.total_seconds()), 3600)
     mm, ss = divmod(rem, 60)
-    text = (f"ℹ️ <b>Даун213 v17 REPORT</b>\n\n"
+    text = (f"ℹ️ <b>Даун213 v18 LONG</b>\n\n"
             f"📅 Первый запуск: {FIRST_LAUNCH}\n"
             f"🚀 Текущий: {BOT_START_TIME.strftime('%d.%m.%Y %H:%M:%S')}\n"
             f"⏱ Работаю: {h}ч {mm}м {ss}с\n"
@@ -132,7 +144,7 @@ def other_cmd(m):
 def start_report(m):
     uid=int(m.from_user.id)
     report_mode[uid]=True
-    bot.send_message(m.chat.id, "✍️ Опиши ошибку одним сообщением и я перешлю админу.\nНапиши что случилось, после какого сообщения.", reply_markup=main_keyboard(), disable_web_page_preview=True)
+    bot.send_message(m.chat.id, "✍️ Опиши ошибку одним сообщением и я перешлю админу.", reply_markup=main_keyboard(), disable_web_page_preview=True)
 
 @bot.message_handler(func=lambda m: m.text in ["ℹ️ Инфо", "👑 Создатель", "🧹 Забыть", "📩 Отправить админу"])
 def buttons_handler(m):
@@ -144,21 +156,19 @@ def buttons_handler(m):
 @bot.message_handler(func=lambda m: m.text and not m.text.startswith('/'))
 def chat_h(m):
     uid=int(m.from_user.id)
-    if uid in last_msg and time.time()-last_msg[uid]<1: return
+    if uid in last_msg and time.time()-last_msg[uid]<0.5: return
     last_msg[uid]=time.time()
 
-    # Если человек в режиме репорта
     if report_mode.get(uid):
         report_mode.pop(uid, None)
-        report_text = m.text
         if ADMIN_ID:
             try:
-                bot.send_message(int(ADMIN_ID), f"🐛 <b>Баг-репорт от Даун213</b>\n\n👤 От: {m.from_user.first_name} @{m.from_user.username or 'нет'} (ID {uid})\n💬 Текст: {report_text}\n🕒 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
-                bot.send_message(m.chat.id, "✅ Отправил админу! Спасибо что помогаешь чинить бота.", reply_markup=main_keyboard(), disable_web_page_preview=True)
+                bot.send_message(int(ADMIN_ID), f"🐛 <b>Баг-репорт от Даун213</b>\n\n👤 От: {m.from_user.first_name} @{m.from_user.username or 'нет'} (ID {uid})\n💬 Текст: {m.text}\n🕒 Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+                bot.send_message(m.chat.id, "✅ Отправил админу! Спасибо!", reply_markup=main_keyboard(), disable_web_page_preview=True)
             except Exception as e:
-                bot.send_message(m.chat.id, f"Не смог отправить админу ({e}), напиши ему напрямую:", reply_markup=creator_inline(), disable_web_page_preview=True)
+                bot.send_message(m.chat.id, f"Не смог отправить ({e})", reply_markup=creator_inline(), disable_web_page_preview=True)
         else:
-            bot.send_message(m.chat.id, "⚠️ ADMIN_ID не настроен. Напиши админу напрямую:", reply_markup=creator_inline(), disable_web_page_preview=True)
+            bot.send_message(m.chat.id, "⚠️ ADMIN_ID не настроен", reply_markup=creator_inline(), disable_web_page_preview=True)
         return
 
     low=m.text.lower()
@@ -175,16 +185,18 @@ def chat_h(m):
     ans=None
     for model_name in WORKING_MODELS:
         try:
-            r=client.chat.completions.create(model=model_name,messages=hist,temperature=0.7,max_tokens=400)
+            r=client.chat.completions.create(model=model_name,messages=hist,temperature=0.7,max_tokens=1000)
             ans=r.choices[0].message.content; break
-        except: continue
+        except Exception as e:
+            print(f"Model {model_name} error: {e}")
+            continue
     if ans:
         hist.append({"role":"assistant","content":ans}); memory[uid]=trim_hist(hist); save_memory()
         bot.send_message(m.chat.id, ans, reply_markup=main_keyboard(), disable_web_page_preview=True)
 
 app=Flask(__name__)
 @app.route('/')
-def home(): return f"v17 report {BOT_START_TIME}"
+def home(): return f"v18 long {BOT_START_TIME}"
 def run_flask(): app.run(host='0.0.0.0',port=8080)
 threading.Thread(target=run_flask,daemon=True).start()
 bot.infinity_polling(none_stop=True)
