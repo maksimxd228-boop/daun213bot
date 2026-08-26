@@ -1,4 +1,4 @@
-import os, json, time, logging, threading, requests
+import os, json, time, logging, threading, requests, re
 from datetime import datetime
 from flask import Flask
 import telebot
@@ -48,10 +48,34 @@ WORKING_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 
 report_mode = {}
 
+# --- КАЛЬКУЛЯТОР ---
+def try_calculate(text):
+    s = text.strip().lower()
+    s = s.replace('×','*').replace('х','*').replace('x','*').replace('·','*').replace(',','.')
+    s = s.replace('—','-').replace('–','-')
+    if not re.fullmatch(r'[\d\s\.\+\-\*\/\(\)]+', s):
+        return None
+    if not any(op in s for op in ['*','+','-','/']):
+        return None
+    if '**' in s or len(s) > 50:
+        return None
+    try:
+        result = eval(s, {"__builtins__": None}, {})
+        if isinstance(result, float) and result.is_integer():
+            result = int(result)
+        if isinstance(result, int) and abs(result) >= 1000:
+            formatted = f"{result:,}".replace(",", " ")
+            return f"{s.strip()} = {formatted}"
+        return f"{s.strip()} = {result}"
+    except:
+        return None
+
 def search_internet(q):
     if not SEARCH_AVAILABLE or len(q) < 4:
         return ""
     if q.lower().strip() in ["привет","приает","ку","хай","как дела","как делп","нормально","инфо","забыть"]:
+        return ""
+    if try_calculate(q):
         return ""
     try:
         with DDGS() as ddgs:
@@ -115,7 +139,7 @@ def start_cmd(m):
     uid=int(m.from_user.id)
     memory[uid]=[{"role":"system","content":SYSTEM_PROMPT}]
     save_memory()
-    bot.send_message(m.chat.id, "Привет! Я Даун213, кнопки внизу 👇 (v20 ECONOMY ALWAYS ON)", reply_markup=main_keyboard(), disable_web_page_preview=True)
+    bot.send_message(m.chat.id, "Привет! Я Даун213, кнопки внизу 👇 (v21 CALC + ALWAYS ON)", reply_markup=main_keyboard(), disable_web_page_preview=True)
 
 @bot.message_handler(commands=['forget'])
 def forget_cmd(m):
@@ -150,13 +174,14 @@ def info_cmd(m):
     mm, ss = divmod(rem, 60)
     anti_status = "ВКЛ НАВСЕГДА ✅" if ANTISLEEP_ENABLED else "ВЫКЛ 💤"
     text = (
-        f"ℹ️ <b>Даун213 v20 ECONOMY ALWAYS ON</b>\n\n"
+        f"ℹ️ <b>Даун213 v21 CALC + ALWAYS ON</b>\n\n"
         f"📅 Первый запуск: {FIRST_LAUNCH}\n"
         f"🚀 Текущий: {BOT_START_TIME.strftime('%d.%m.%Y %H:%M:%S')}\n"
         f"⏱ Работаю: {h}ч {mm}м {ss}с\n"
         f"🕒 Сейчас: {now.strftime('%d.%m.%Y %H:%M:%S')}\n"
         f"👥 В памяти: {len(memory)}\n"
         f"🔋 Анти-сон: {anti_status}\n"
+        f"🧮 Калькулятор: ВКЛ ✅\n"
         f"👑 Создатель: {CREATOR_NAME}"
     )
     bot.send_message(m.chat.id, text, reply_markup=creator_inline(), disable_web_page_preview=True)
@@ -184,9 +209,10 @@ def buttons_handler(m):
 @bot.message_handler(func=lambda m: m.text and not m.text.startswith('/'))
 def chat_h(m):
     uid=int(m.from_user.id)
-    if uid in last_msg and time.time()-last_msg[uid]<0.5:
+    if uid in last_msg and time.time()-last_msg[uid]<0.4:
         return
     last_msg[uid]=time.time()
+
     if report_mode.get(uid):
         report_mode.pop(uid, None)
         if ADMIN_ID:
@@ -196,10 +222,22 @@ def chat_h(m):
             except Exception as e:
                 bot.send_message(m.chat.id, f"Не смог отправить ({e})", reply_markup=creator_inline(), disable_web_page_preview=True)
         return
+
     low=m.text.lower()
     if "кто тебя создал" in low or "кто твой создатель" in low:
         bot.send_message(m.chat.id, f"Мой создатель - {CREATOR_NAME}!", reply_markup=creator_inline(), disable_web_page_preview=True)
         return
+
+    calc_result = try_calculate(m.text)
+    if calc_result:
+        bot.send_message(m.chat.id, f"🧮 {calc_result}", reply_markup=main_keyboard(), disable_web_page_preview=True)
+        hist=get_history(uid)
+        hist.append({"role":"user","content":m.text})
+        hist.append({"role":"assistant","content":calc_result})
+        memory[uid]=trim_hist(hist)
+        save_memory()
+        return
+
     bot.send_chat_action(m.chat.id,'typing')
     web_data=search_internet(m.text)
     hist=get_history(uid)
@@ -233,7 +271,7 @@ def chat_h(m):
 app=Flask(__name__)
 @app.route('/')
 def home():
-    return f"Daun213 v20 ALWAYS ON | Uptime {datetime.now() - BOT_START_TIME} | AntiSleep ON"
+    return f"Daun213 v21 CALC ALWAYS ON | Uptime {datetime.now() - BOT_START_TIME} | AntiSleep ON"
 @app.route('/ping')
 def ping():
     return "pong", 200
@@ -259,5 +297,5 @@ def antisleep_loop():
 
 threading.Thread(target=run_flask,daemon=True).start()
 threading.Thread(target=antisleep_loop,daemon=True).start()
-print("Daun213 v20 ALWAYS ON ЗАПУЩЕН - будет работать 10 часов пока ты спишь!")
+print("Daun213 v21 CALC + ALWAYS ON ЗАПУЩЕН!")
 bot.infinity_polling(none_stop=True)
