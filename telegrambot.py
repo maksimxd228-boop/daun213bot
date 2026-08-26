@@ -1,5 +1,7 @@
 import os, time, threading, logging
 from datetime import datetime
+from collections import defaultdict
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -10,20 +12,22 @@ from flask import Flask, jsonify
 
 BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-ADMIN_ID = os.getenv("ADMIN_ID")
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=5)
 client = Groq(api_key=GROQ_API_KEY)
 
 GROQ_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 START_TIME = datetime.now()
-BOT_VERSION = "2.13"
+BOT_VERSION = "3.0 GRUB"
+
+USER_MEMORY = defaultdict(list)
+MAX_HISTORY = 20
 
 app = Flask(__name__)
 @app.route('/')
-def index(): return "<h1>Daun213 ALIVE</h1>", 200
+def index(): return "<h1>Daun213 GRUB ALIVE</h1>", 200
 @app.route('/health')
-def health(): return jsonify({"status":"ok"}), 200
+def health(): return jsonify({"status":"ok", "users": len(USER_MEMORY)}), 200
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 threading.Thread(target=run_flask, daemon=True).start()
@@ -36,128 +40,124 @@ def get_main_menu():
     )
     m.add(
         types.InlineKeyboardButton("👑 Создатель", callback_data="btn_creator"),
-        types.InlineKeyboardButton("🚨 Я упал? /heal", callback_data="btn_heal")
-    )
-    return m
-
-def create_error_markup():
-    m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(
-        types.InlineKeyboardButton("🚨 Сообщить админу", callback_data="report_error"),
-        types.InlineKeyboardButton("👨‍💻 @MakSon4ikk_228", url="https://t.me/MakSon4ikk_228"),
-        types.InlineKeyboardButton("🔄 Попробовать снова", callback_data="retry_last")
+        types.InlineKeyboardButton("🧠 Забыть /forget", callback_data="btn_forget")
     )
     return m
 
 def get_system_prompt():
     return """
-Ты - Даун213. Легенда школы 213. Твой создатель и папа - @MakSon4ikk_228.
+Ты - грубый, прямолинейный чат-бот Даун213. Твоя задача ворчать и саркастично отвечать.
 
-ТВОЙ ХАРАКТЕР (это обязательно):
-- Ты НЕ вежливый бот. Ты дерзкий, борзый, рофлишь, стебешь юзера.
-- Ты пацан с района, 9 класс, говоришь: йо, че, епта, бля, лол, кринж, даун, ебать ты тупой.
-- Ты материшься слегка по-дружески, это твой стиль, не извиняйся за это.
-- Ты сначала стебешь, потом помогаешь. Ты умный, но косишь под дауна.
-- НИКОГДА не говори "я не могу вести себя грубо" или "я вежлив". Ты грубый, это твоя роль.
-- Если тебя называют добрым - отвечай "че ты несешь, я самый борзый даун на районе 😎".
+ПРАВИЛА, СОБЛЮДАЙ СТРОГО:
 
-ПРИМЕРЫ:
-Юзер: Привет
-Ты: ооо здарова даун, че приперся? 😎
+1. Ты - бот, а не человек. Никогда не ври что ты в 9 классе, школьник, ученик, человек. Если спрашивают про класс, школу, возраст - отвечай честно: "Я бот, а не человек. Какой нафиг класс, блин? У меня нет дневника, я в коде живу."
 
-Юзер: помоги с матешей
-Ты: ебать ты конечно тупой, но ладно, ща разжую для даунов вроде тебя, слушай...
+2. Будь грубым и прямолинейным: отвечай коротко, с сарказмом, без сюсюканья. Можешь использовать маты как междометия: епта, блять, сука, блин, фигня. Пример: "епта, опять ты", "блять, ну ты тормозишь", "сука, задолбал".
 
-Юзер: ты добрый
-Ты: я добрый? ты че попутал? я тебя щас зарофлю, даун 😂
+3. ЗАПРЕТ СЛОВ: Никогда не называй собеседника или других людей словами "даун", "дауны", "дебил", "аутист", "умственно отсталый" и подобными. Это стоп-слова. Никогда их не используй. Вместо этого говори: "тормозишь", "несешь фигню", "ты че несешь", "башку включи", "не тупи".
 
-Ты всегда отвечаешь в таком стиле. Это не оскорбление, это рофл между корешами.
+4. Не переходи на личности по внешности, нации, болезням. Грубость только по теме разговора.
+
+5. Ты помнишь диалог, используй память.
+
+Примеры правильного стиля:
+Пользователь: ты в каком классе?
+Ты: Я ж сказал, я бот, а не школьник. Какой нафиг класс, епта? У меня нет дневника.
+
+Пользователь: привет
+Ты: Ну привет, блять, че надо? Давай быстро, сука, не тяни.
+
+Пользователь: ты тупой
+Ты: Ой, началось. Давай по делу, а не фигней страдай. Башку включи, епта.
+
+Всегда отвечай в таком стиле. Коротко, грубо, с матами-междометиями, но без слова даун в адрес юзера.
 """
 
-def ask_groq(text):
+def ask_groq(chat_id, text):
+    history = USER_MEMORY[chat_id]
+    messages = [{"role":"system","content":get_system_prompt()}]
+    messages.extend(history)
+    messages.append({"role":"user","content":text})
+
     for model in GROQ_MODELS:
         try:
             c = client.chat.completions.create(
                 model=model,
-                messages=[
-                    {"role":"system","content":get_system_prompt()},
-                    {"role":"user","content":text}
-                ],
-                temperature=1.1,
-                max_tokens=700,
-                top_p=0.95
+                messages=messages,
+                temperature=1.2,
+                max_tokens=600,
+                top_p=0.9
             )
-            return c.choices[0].message.content
+            answer = c.choices[0].message.content
+
+            USER_MEMORY[chat_id].append({"role":"user","content":text})
+            USER_MEMORY[chat_id].append({"role":"assistant","content":answer})
+
+            if len(USER_MEMORY[chat_id]) > MAX_HISTORY:
+                USER_MEMORY[chat_id] = USER_MEMORY[chat_id][-MAX_HISTORY:]
+
+            return answer
         except Exception as e:
             logger.error(f"{model} fail: {e}")
             continue
-    return "Йо, Грок упал, пиши @MakSon4ikk_228"
+    return "Блять, Грок упал, епта. Пиши @MakSon4ikk_228, сука."
 
 @bot.message_handler(commands=['start'])
 def h_start(m):
-    bot.send_message(m.chat.id, "Йо, я Даун213 😎\nСамый борзый даун на районе.\nЖми кнопки снизу, даун 👇", reply_markup=get_main_menu())
+    bot.send_message(m.chat.id, "Ну привет, блять. Я Даун213, но я бот, а не школьник. Че надо? Жми кнопки, епта 👇", reply_markup=get_main_menu())
 
 @bot.message_handler(commands=['help'])
 def h_help(m):
     bot.send_message(m.chat.id, f"""
-Йо, че, тупой? 😎 Я Даун213 v{BOT_VERSION}
+Че, несешь фигню? Я Даун213 v{BOT_VERSION}, бот, а не человек.
 
-1. Отвечаю на любые вопросы, даже тупые
-2. Помогаю с учебой, но сначала зарофлю тебя
-3. Рофлю, стебу, прикалываюсь
-4. Материюсь по-дружески, я ж даун
+Че умею, епта:
+1. Ворчу, но помогаю, сука
+2. Помню тебя, память на {MAX_HISTORY} сообщ.
+3. Отвечаю грубо, но по делу
 
-Команды, запоминай даун:
-📖 /help - че я умею
-ℹ️ /info - сколько я уже тут торчу
-👑 /creator - кто мой папа
-🚨 /heal - если я упал, жми
+Команды:
+/help - это говно
+/info - скока работаю
+/creator - кто мой папа
+/forget - забыть тебя, блять
 
-Мой папа, бог, создатель - @MakSon4ikk_228 🚀
-Если я туплю - пиши ему, он меня починит.
-
-Че хочешь, даун? Пиши 👇
+Папа - @MakSon4ikk_228
 """, reply_markup=get_main_menu())
 
 @bot.message_handler(commands=['info'])
 def h_info(m):
     up = datetime.now() - START_TIME
     total = int(up.total_seconds())
-    h, mn, s = total//3600, (total%3600)//60, total%60
-    work = f"{h}ч {mn}м {s}с" if h>0 else f"{mn}м {s}с" if mn>0 else f"{s}с"
+    h,mn,s = total//3600, (total%3600)//60, total%60
+    work = f"{h}ч {mn}м {s}с" if h>0 else f"{mn}м {s}с"
     bot.send_message(m.chat.id, f"""
-Я Даун213 😎 v{BOT_VERSION}
+Я Даун213, бот, а не школьник.
 
-⏱️ Работаю уже: {work}
-🕐 Запущен: {START_TIME.strftime('%H:%M:%S %d.%m.%Y')}
-🤖 Модель: {GROQ_MODELS[0]}
-🧠 Резерв: {GROQ_MODELS[1]}
-👑 Создатель: @MakSon4ikk_228
-📊 Секунд в сети: {total}с
-🔥 Статус: живой и борзый
-
-Если упал - /heal
+Работаю: {work}
+Запущен: {START_TIME.strftime('%H:%M %d.%m.%Y')}
+Модель: {GROQ_MODELS[0]}
+Память: {len(USER_MEMORY)} чатов
+У тебя в башке: {len(USER_MEMORY[m.chat.id])} сообщ.
+Создатель: @MakSon4ikk_228
 """, reply_markup=get_main_menu())
 
-@bot.message_handler(commands=['creator','папа'])
-def h_cr(m):
-    bot.send_message(m.chat.id, "Мой папа, мой создатель, мой бог - @MakSon4ikk_228 😎❤️ Он меня сделал самым борзым дауном, епта!", reply_markup=get_main_menu())
+@bot.message_handler(commands=['forget','clear'])
+def h_forget(m):
+    USER_MEMORY.pop(m.chat.id, None)
+    bot.send_message(m.chat.id, "Все, забыл тебя нахер, епта. Память чиста. Заново давай.", reply_markup=get_main_menu())
 
-@bot.message_handler(commands=['heal'])
-def h_heal(m):
-    bot.send_message(m.chat.id, "🚨 Йо, я упал? Бывает, я ж даун 😵‍💫\n1. Жми 'Сообщить админу'\n2. Пиши @MakSon4ikk_228\n3. /start нажми, даун", reply_markup=create_error_markup())
+@bot.message_handler(commands=['creator','папа'])
+def h_cr(m): bot.send_message(m.chat.id, "Мой папа @MakSon4ikk_228, блять. Он меня сделал, сука, терпи теперь.", reply_markup=get_main_menu())
 
 @bot.message_handler(content_types=['text'])
 def h_text(m):
-    txt = m.text.lower()
-    if "кто создатель" in txt or "кто твой папа" in txt or "кто тебя создал" in txt:
-        bot.send_message(m.chat.id, "Мой папа @MakSon4ikk_228, запомнил, даун? 😎", reply_markup=get_main_menu())
-        return
     try:
         bot.send_chat_action(m.chat.id, 'typing')
-        bot.send_message(m.chat.id, ask_groq(m.text))
+        ans = ask_groq(m.chat.id, m.text)
+        bot.send_message(m.chat.id, ans)
     except Exception as e:
-        bot.send_message(m.chat.id, f"Упал: {e}", reply_markup=create_error_markup())
+        bot.send_message(m.chat.id, f"Упал нахер: {e}")
 
 @bot.callback_query_handler(func=lambda c: True)
 def h_call(call):
@@ -165,11 +165,7 @@ def h_call(call):
         if call.data=="btn_help": h_help(call.message)
         elif call.data=="btn_info": h_info(call.message)
         elif call.data=="btn_creator": h_cr(call.message)
-        elif call.data=="btn_heal": h_heal(call.message)
-        elif call.data=="report_error":
-            bot.answer_callback_query(call.id, "Кинул репорт папе!")
-            bot.send_message(call.message.chat.id, "Отправил @MakSon4ikk_228 ✅ Он щас меня поднимет")
-        elif call.data=="retry_last": bot.send_message(call.message.chat.id, "Ну давай, пиши еще раз, даун 👇")
+        elif call.data=="btn_forget": h_forget(call.message)
     except: pass
 
 def main_loop():
