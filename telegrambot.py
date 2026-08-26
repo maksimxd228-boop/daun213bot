@@ -1,80 +1,111 @@
-import os, json, time, logging, threading
+import os
+import time
+import threading
+import requests
+import random
 from datetime import datetime
 from flask import Flask
 import telebot
-from telebot import types
-from groq import Groq
 
-try:
-    from duckduckgo_search import DDGS
-    SEARCH_AVAILABLE = True
-except:
-    SEARCH_AVAILABLE = False
+TOKEN = os.getenv("BOT_TOKEN")
+APP_URL = "https://daun213bot.onrender.com"
+START_TIME = datetime.now()
+ANTISLEEP_ENABLED = True # ВЕЧНЫЙ ВКЛ
+ANTISLEEP_INTERVAL = 14 * 60
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROQ_KEY = os.getenv("GROQ_API_KEY")
-ADMIN_ID = os.getenv("ADMIN_ID")
-MEMORY_FILE = "memory.json"
-FIRST_LAUNCH_FILE = "first_launch.txt"
+bot = telebot.TeleBot(TOKEN)
+app = Flask(__name__)
+memory_users = {}
+memory_messages = 0
+CREATOR = "MakSon4ikk_228"
 
-CREATOR_NAME = "MakSon4ikk_228"
-CREATOR_LINK = "https://t.me/MakSon4ikk_228"
-BOT_START_TIME = datetime.now()
+ANSWERS = {
+    "девушки боятся": "Девушки чаще всего боятся людей, которые проявляют агрессию, неуважение или недоверие. Также опасаются тех, кто не умеет слушать и ценить их мнение.",
+    "парни боятся": "Парни чаще всего боятся показаться слабыми, быть отвергнутыми и потерять уважение.",
+    "кого боятся": "Девушки чаще всего боятся людей, которые проявляют агрессию, неуважение или недоверие.",
+}
 
-def get_first_launch():
-    if os.path.exists(FIRST_LAUNCH_FILE):
+@app.route('/')
+def home():
+    uptime = datetime.now() - START_TIME
+    return f"Daun213 v20 ECONOMY | Uptime: {uptime} | AntiSleep: ALWAYS ON ✅", 200
+
+@app.route('/ping')
+def ping():
+    return "pong", 200
+
+def antisleep_loop():
+    while True:
+        time.sleep(ANTISLEEP_INTERVAL)
+        if ANTISLEEP_ENABLED:
+            try:
+                print(f"[{datetime.now()}] AntiSleep ping -> {APP_URL}")
+                requests.get(APP_URL, timeout=15)
+                requests.get(f"{APP_URL}/ping", timeout=15)
+            except Exception as e:
+                print(f"AntiSleep error: {e}")
+
+threading.Thread(target=antisleep_loop, daemon=True).start()
+
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
+    bot.reply_to(message, f"Привет! Я Даун213 v20 ECONOMY\n🔋 Анти-сон: ВКЛ НАВСЕГДА\nНапиши Инфо")
+
+@bot.message_handler(commands=['антисон'])
+def cmd_antisleep(message):
+    global ANTISLEEP_ENABLED
+    if "выкл" in message.text.lower():
+        ANTISLEEP_ENABLED = False
+        bot.reply_to(message, "💤 Анти-сон ВЫКЛ")
+    else:
+        ANTISLEEP_ENABLED = True
+        bot.reply_to(message, "✅ Анти-сон ВКЛ НАВСЕГДА - буду работать 10 часов пока ты спишь")
+
+@bot.message_handler(func=lambda m: True)
+def all_messages(message):
+    global memory_messages
+    memory_messages += 1
+    memory_users[message.from_user.id] = message.from_user.username
+    text = message.text.lower() if message.text else ""
+
+    if "инфо" in text:
+        now = datetime.now()
+        uptime = now - START_TIME
+        h, rem = divmod(int(uptime.total_seconds()), 3600)
+        m, s = divmod(rem, 60)
+        info_text = f"""ℹ️ Даун213 v20 ECONOMY
+
+📅 Первый запуск: {START_TIME.strftime('%d.%m.%Y в %H:%M:%S')}
+🚀 Текущий: {START_TIME.strftime('%d.%m.%Y %H:%M:%S')}
+⏱️ Работаю: {h}ч {m}м {s}с
+🕐 Сейчас: {now.strftime('%d.%m.%Y %H:%M:%S')}
+👥 В памяти: {len(memory_users)}
+💬 Сообщений: {memory_messages}
+🔋 Анти-сон: ВКЛ НАВСЕГДА ✅ (не спит никогда)
+👑 Создатель: {CREATOR}"""
+        bot.send_message(message.chat.id, info_text)
+        return
+
+    for key in ANSWERS:
+        if key in text:
+            bot.reply_to(message, ANSWERS[key])
+            return
+
+    bot.reply_to(message, message.text)
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_flask, daemon=True).start()
+    print(f"Bot v20 STARTED | AntiSleep ВЕЧНЫЙ ВКЛ")
+    while True:
         try:
-            with open(FIRST_LAUNCH_FILE,"r") as f:
-                return f.read().strip()
-        except: pass
-    now_str = BOT_START_TIME.strftime("%d.%m.%Y в %H:%M:%S")
-    try:
-        with open(FIRST_LAUNCH_FILE,"w") as f:
-            f.write(now_str)
-    except: pass
-    return now_str
-
-FIRST_LAUNCH = get_first_launch()
-logging.basicConfig(level=logging.INFO)
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-client = Groq(api_key=GROQ_KEY)
-WORKING_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
-
-report_mode = {}
-
-def search_internet(q):
-    if not SEARCH_AVAILABLE or len(q) < 4: return ""
-    if q.lower().strip() in ["привет","приает","ку","хай","как дела","как делп","нормально","инфо","забыть"]: return ""
-    try:
-        with DDGS() as ddgs:
-            return "\n".join([f"{r['body'][:150]}" for r in list(ddgs.text(q, max_results=3))])
-    except: return ""
-
-def load_memory():
-    try:
-        if os.path.exists(MEMORY_FILE):
-            with open(MEMORY_FILE,"r",encoding="utf-8") as f:
-                return {int(k):v for k,v in json.load(f).items()}
-    except: pass
-    return {}
-def save_memory():
-    try:
-        with open(MEMORY_FILE,"w",encoding="utf-8") as f:
-            json.dump(memory,f,ensure_ascii=False,indent=2)
-    except: pass
-
-memory = load_memory()
-last_msg = {}
-
-SYSTEM_PROMPT = f"""
-Ты - Даун213 из Риги. Пацан с Риги, общаешься нормально.
-
-ПРАВИЛА ЭКОНОМ:
-- По умолчанию: 2-3 предложения, коротко.
-- История/наука (как появился, что такое, ссср, война, почему) - 4-5 предложений с датами.
-- Только если пишут "подробнее", "длиннее", "больше текста" - тогда 2 абзаца.
-
-Анти-цикл: не спрашивай 2 раза "а у тебя как?".
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling error: {e}")
+            time.sleep(5)Анти-цикл: не спрашивай 2 раза "а у тебя как?".
 Приает=Привет. Создатель {CREATOR_NAME}, не упоминай сам.
 """
 
