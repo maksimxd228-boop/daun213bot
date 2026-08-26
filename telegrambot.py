@@ -13,24 +13,20 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 MEMORY_FILE = "memory.json"
 
+CREATOR_NAME = "MakSon4ikk_228"
+CREATOR_LINK = "https://t.me/MakSon4ikk_228"
+
 logging.basicConfig(level=logging.INFO)
-# Включаем HTML чтобы ссылки были кликабельные
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 client = Groq(api_key=GROQ_KEY)
-
 WORKING_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 
-# ===== ТУТ ТВОЯ ССЫЛКА - ПОМЕНЯЙ ЕСЛИ НАДО =====
-CREATOR_NAME = "MakSon4ikk_228"
-CREATOR_LINK = "https://t.me/MakSon4ikk_228" # можешь поставить свой инст / тикток
-
-def search_internet(query):
-    if not SEARCH_AVAILABLE or len(query) < 4: return ""
-    if query.lower() in ["привет","приает","ку","хай"]: return ""
+def search_internet(q):
+    if not SEARCH_AVAILABLE or len(q) < 4: return ""
+    if q.lower().strip() in ["привет","приает","ку","хай"]: return ""
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=2))
-            return "\n".join([f"{r['title']}: {r['body'][:150]}" for r in results])
+            return "\n".join([f"{r['title']}: {r['body'][:120]}" for r in list(ddgs.text(q, max_results=2))])
     except: return ""
 
 def load_memory():
@@ -50,42 +46,44 @@ memory = load_memory()
 last_msg = {}
 
 SYSTEM_PROMPT = f"""
-Ты - Даун213, бот из Риги, радостный.
+Ты - Даун213 из Риги. Отвечай КОРОТКО, 1-2 предложения, с вайбом кайф, погнали.
 
-ПРАВИЛО 1 - СОЗДАТЕЛЬ С ССЫЛКОЙ:
-Твой создатель - {CREATOR_NAME}. Ссылка на него {CREATOR_LINK}.
-Когда тебя спрашивают "кто твой создатель", "кто тебя сделал" - отвечай ОБЯЗАТЕЛЬНО с кликабельной ссылкой в формате HTML:
-Мой создатель - <a href="{CREATOR_LINK}">{CREATOR_NAME}</a>, легенда из Риги!
-В остальных случаях НЕ упоминай создателя.
+ОПЕЧАТКИ: Всегда исправляй: Приает=Привет, Как делп=Как дела. Никогда не пиши "что за Приает".
 
-ПРАВИЛО 2 - ОПЕЧАТКИ:
-Если пишут "Приает" -> понимай как "Привет" и здоровайся нормально, не ругай.
-
-Характер: кайф, погнали, имба, коротко.
+СОЗДАТЕЛЬ: {CREATOR_NAME} - {CREATOR_LINK}. Упоминай ТОЛЬКО когда спрашивают кто создатель, тогда: <a href="{CREATOR_LINK}">{CREATOR_NAME}</a>. В остальном не упоминай.
 """
 
 def get_history(uid):
     uid=int(uid)
+    if uid in memory and memory[uid][0]["content"]!= SYSTEM_PROMPT:
+        memory[uid]=[{"role":"system","content":SYSTEM_PROMPT}]
+        save_memory()
     if uid not in memory:
         memory[uid]=[{"role":"system","content":SYSTEM_PROMPT}]
     return memory[uid]
-def trim_hist(h): return [h[0]]+h[-13:] if len(h)>16 else h
 
-@bot.message_handler(commands=['start'])
-def start_cmd(m):
-    bot.send_message(m.chat.id, f"Привет! Я Даун213 v8 с ссылкой на создателя!\nМой создатель - <a href='{CREATOR_LINK}'>{CREATOR_NAME}</a>\n/help")
+def trim_hist(h): return [h[0]]+h[-12:] if len(h)>14 else h
+
+@bot.message_handler(commands=['start','forget'])
+def reset_cmd(m):
+    uid=int(m.from_user.id)
+    if os.path.exists(MEMORY_FILE):
+        try: os.remove(MEMORY_FILE)
+        except: pass
+    memory.clear()
+    memory[uid]=[{"role":"system","content":SYSTEM_PROMPT}]
+    save_memory()
+    bot.send_message(m.chat.id, f"Готово! Теперь отвечаю коротко и чиню опечатки. Создатель - <a href='{CREATOR_LINK}'>{CREATOR_NAME}</a>")
+
+@bot.message_handler(commands=['info'])
+def info_cmd(m):
+    bot.send_message(m.chat.id, f"ℹ️ Даун213 v12 SMALL\nМозг: gpt-oss-20b\nОтветы: короткие, 400 токенов\nСоздатель: <a href='{CREATOR_LINK}'>{CREATOR_NAME}</a>")
 
 @bot.message_handler(commands=['creator'])
 def creator_cmd(m):
-    bot.send_message(m.chat.id, f"Мой создатель - <a href='{CREATOR_LINK}'>{CREATOR_NAME}</a>, легенда из Риги!")
+    bot.send_message(m.chat.id, f"Мой создатель - <a href='{CREATOR_LINK}'>{CREATOR_NAME}</a>")
 
-@bot.message_handler(commands=['forget'])
-def forget_cmd(m):
-    memory[int(m.from_user.id)]=[{"role":"system","content":SYSTEM_PROMPT}]
-    save_memory()
-    bot.send_message(m.chat.id,"Забыл!")
-
-@bot.message_handler(func=lambda m: True)
+@bot.message_handler(func=lambda m: m.text and not m.text.startswith('/'))
 def chat_h(m):
     uid=int(m.from_user.id)
     if uid in last_msg and time.time()-last_msg[uid]<1: return
@@ -93,24 +91,34 @@ def chat_h(m):
     bot.send_chat_action(m.chat.id,'typing')
     web_data=search_internet(m.text)
     hist=get_history(uid)
-    user_text=m.text + (f"\n[Инета]: {web_data}" if web_data else "")
-    hist.append({"role":"user","content":user_text})
+    ut=m.text + (f"\n[Инета]: {web_data}" if web_data else "")
+    hist.append({"role":"user","content":ut})
     hist=trim_hist(hist); memory[uid]=hist
-    answer=None
+    ans=None
     for model_name in WORKING_MODELS:
         try:
-            r=client.chat.completions.create(model=model_name,messages=hist,temperature=0.8,max_tokens=400)
-            answer=r.choices[0].message.content; break
+            r=client.chat.completions.create(
+                model=model_name,
+                messages=hist,
+                temperature=0.7,
+                max_tokens=400 # МАЛЕНЬКИЙ ОТВЕТ
+            )
+            ans=r.choices[0].message.content; break
         except: continue
-    if answer:
-        hist.append({"role":"assistant","content":answer}); memory[uid]=trim_hist(hist); save_memory()
-        bot.send_message(m.chat.id,answer)
-    else:
-        bot.send_message(m.chat.id,"Завис")
+    if ans:
+        hist.append({"role":"assistant","content":ans}); memory[uid]=trim_hist(hist); save_memory()
+        bot.send_message(m.chat.id, ans)
 
 app=Flask(__name__)
 @app.route('/')
-def home(): return f"Даун213 v8 {datetime.now()}"
+def home(): return f"v12 small {datetime.now()}"
+@app.route('/clear')
+def clear_route():
+    if os.path.exists(MEMORY_FILE):
+        os.remove(MEMORY_FILE)
+        memory.clear()
+        return "deleted"
+    return "no file"
 def run_flask(): app.run(host='0.0.0.0',port=8080)
 threading.Thread(target=run_flask,daemon=True).start()
 bot.infinity_polling(none_stop=True)
