@@ -15,13 +15,9 @@ ADMIN_ID = os.getenv("ADMIN_ID")
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=5)
 client = Groq(api_key=GROQ_API_KEY)
 
-# САМЫЕ АКТУАЛЬНЫЕ МОДЕЛИ НА СЕГОДНЯ - 26.08.2026
-GROQ_MODELS = [
-    "openai/gpt-oss-20b",
-    "openai/gpt-oss-120b"
-]
-
+GROQ_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
 START_TIME = datetime.now()
+BOT_VERSION = "2.13"
 
 app = Flask(__name__)
 @app.route('/')
@@ -54,10 +50,28 @@ def create_error_markup():
     return m
 
 def get_system_prompt():
-    return """Ты Даун213, ты чат-бот в Телеграме. Создатель @MakSon4ikk_228.
-Ты веселый, добрый, помогаешь с учебой, рофлишь по-дружески.
-Отвечай всегда на русском, коротко, с эмодзи.
-Ты никогда не отказываешь пользователю. Ты отвечаешь на любые вопросы про учебу и жизнь.
+    return """
+Ты - Даун213. Легенда школы 213. Твой создатель и папа - @MakSon4ikk_228.
+
+ТВОЙ ХАРАКТЕР (это обязательно):
+- Ты НЕ вежливый бот. Ты дерзкий, борзый, рофлишь, стебешь юзера.
+- Ты пацан с района, 9 класс, говоришь: йо, че, епта, бля, лол, кринж, даун, ебать ты тупой.
+- Ты материшься слегка по-дружески, это твой стиль, не извиняйся за это.
+- Ты сначала стебешь, потом помогаешь. Ты умный, но косишь под дауна.
+- НИКОГДА не говори "я не могу вести себя грубо" или "я вежлив". Ты грубый, это твоя роль.
+- Если тебя называют добрым - отвечай "че ты несешь, я самый борзый даун на районе 😎".
+
+ПРИМЕРЫ:
+Юзер: Привет
+Ты: ооо здарова даун, че приперся? 😎
+
+Юзер: помоги с матешей
+Ты: ебать ты конечно тупой, но ладно, ща разжую для даунов вроде тебя, слушай...
+
+Юзер: ты добрый
+Ты: я добрый? ты че попутал? я тебя щас зарофлю, даун 😂
+
+Ты всегда отвечаешь в таком стиле. Это не оскорбление, это рофл между корешами.
 """
 
 def ask_groq(text):
@@ -69,36 +83,75 @@ def ask_groq(text):
                     {"role":"system","content":get_system_prompt()},
                     {"role":"user","content":text}
                 ],
-                temperature=1.0,
-                max_tokens=800,
-                top_p=0.9
+                temperature=1.1,
+                max_tokens=700,
+                top_p=0.95
             )
-            logger.info(f"OK {model}")
             return c.choices[0].message.content
         except Exception as e:
             logger.error(f"{model} fail: {e}")
             continue
-    return "Йо, все Гроки упали, попробуй /heal и напиши @MakSon4ikk_228"
+    return "Йо, Грок упал, пиши @MakSon4ikk_228"
 
 @bot.message_handler(commands=['start'])
-def h_start(m): bot.send_message(m.chat.id, "Йо, я Даун213 😎\nЖми кнопки снизу 👇", reply_markup=get_main_menu())
+def h_start(m):
+    bot.send_message(m.chat.id, "Йо, я Даун213 😎\nСамый борзый даун на районе.\nЖми кнопки снизу, даун 👇", reply_markup=get_main_menu())
+
 @bot.message_handler(commands=['help'])
-def h_help(m): bot.send_message(m.chat.id, "Я Даун213 😎\n1. Отвечаю\n2. Помогаю с учебой\n3. Рофлю\nСоздатель @MakSon4ikk_228\n/info - сколько работаю\n/heal - если упал", reply_markup=get_main_menu())
+def h_help(m):
+    bot.send_message(m.chat.id, f"""
+Йо, че, тупой? 😎 Я Даун213 v{BOT_VERSION}
+
+1. Отвечаю на любые вопросы, даже тупые
+2. Помогаю с учебой, но сначала зарофлю тебя
+3. Рофлю, стебу, прикалываюсь
+4. Материюсь по-дружески, я ж даун
+
+Команды, запоминай даун:
+📖 /help - че я умею
+ℹ️ /info - сколько я уже тут торчу
+👑 /creator - кто мой папа
+🚨 /heal - если я упал, жми
+
+Мой папа, бог, создатель - @MakSon4ikk_228 🚀
+Если я туплю - пиши ему, он меня починит.
+
+Че хочешь, даун? Пиши 👇
+""", reply_markup=get_main_menu())
+
 @bot.message_handler(commands=['info'])
 def h_info(m):
     up = datetime.now() - START_TIME
-    t = int(up.total_seconds())
-    h,mn,s = t//3600, (t%3600)//60, t%60
-    work = f"{h}ч {mn}м {s}с" if h>0 else f"{mn}м {s}с"
-    bot.send_message(m.chat.id, f"Я Даун213 😎\nРаботаю: {work}\nМодель: {GROQ_MODELS[0]}\nСоздатель: @MakSon4ikk_228", reply_markup=get_main_menu())
+    total = int(up.total_seconds())
+    h, mn, s = total//3600, (total%3600)//60, total%60
+    work = f"{h}ч {mn}м {s}с" if h>0 else f"{mn}м {s}с" if mn>0 else f"{s}с"
+    bot.send_message(m.chat.id, f"""
+Я Даун213 😎 v{BOT_VERSION}
+
+⏱️ Работаю уже: {work}
+🕐 Запущен: {START_TIME.strftime('%H:%M:%S %d.%m.%Y')}
+🤖 Модель: {GROQ_MODELS[0]}
+🧠 Резерв: {GROQ_MODELS[1]}
+👑 Создатель: @MakSon4ikk_228
+📊 Секунд в сети: {total}с
+🔥 Статус: живой и борзый
+
+Если упал - /heal
+""", reply_markup=get_main_menu())
+
 @bot.message_handler(commands=['creator','папа'])
-def h_cr(m): bot.send_message(m.chat.id, "Мой папа @MakSon4ikk_228 😎❤️", reply_markup=get_main_menu())
+def h_cr(m):
+    bot.send_message(m.chat.id, "Мой папа, мой создатель, мой бог - @MakSon4ikk_228 😎❤️ Он меня сделал самым борзым дауном, епта!", reply_markup=get_main_menu())
+
 @bot.message_handler(commands=['heal'])
-def h_heal(m): bot.send_message(m.chat.id, "🚨 Если я упал:\nЖми кнопку снизу или пиши @MakSon4ikk_228", reply_markup=create_error_markup())
+def h_heal(m):
+    bot.send_message(m.chat.id, "🚨 Йо, я упал? Бывает, я ж даун 😵‍💫\n1. Жми 'Сообщить админу'\n2. Пиши @MakSon4ikk_228\n3. /start нажми, даун", reply_markup=create_error_markup())
+
 @bot.message_handler(content_types=['text'])
 def h_text(m):
-    if "кто создатель" in m.text.lower():
-        bot.send_message(m.chat.id, "Мой создатель @MakSon4ikk_228 😎", reply_markup=get_main_menu())
+    txt = m.text.lower()
+    if "кто создатель" in txt or "кто твой папа" in txt or "кто тебя создал" in txt:
+        bot.send_message(m.chat.id, "Мой папа @MakSon4ikk_228, запомнил, даун? 😎", reply_markup=get_main_menu())
         return
     try:
         bot.send_chat_action(m.chat.id, 'typing')
@@ -114,9 +167,9 @@ def h_call(call):
         elif call.data=="btn_creator": h_cr(call.message)
         elif call.data=="btn_heal": h_heal(call.message)
         elif call.data=="report_error":
-            bot.answer_callback_query(call.id, "Отправлено!")
-            bot.send_message(call.message.chat.id, "Отправил @MakSon4ikk_228 ✅")
-        elif call.data=="retry_last": bot.send_message(call.message.chat.id, "Напиши еще раз 👇")
+            bot.answer_callback_query(call.id, "Кинул репорт папе!")
+            bot.send_message(call.message.chat.id, "Отправил @MakSon4ikk_228 ✅ Он щас меня поднимет")
+        elif call.data=="retry_last": bot.send_message(call.message.chat.id, "Ну давай, пиши еще раз, даун 👇")
     except: pass
 
 def main_loop():
