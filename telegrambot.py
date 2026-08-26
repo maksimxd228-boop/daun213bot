@@ -8,191 +8,164 @@ from flask import Flask
 import telebot
 from groq import Groq
 
-# ================== НАСТРОЙКИ ==================
+# ================== НАСТРОЙКИ RENDER ==================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
 MEMORY_FILE = "memory.json"
 
-# Логи чтобы видеть что происходит в Render
 logging.basicConfig(level=logging.INFO)
 
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+bot = telebot.TeleBot(BOT_TOKEN)
 client = Groq(api_key=GROQ_KEY)
 
-# Список рабочих моделей, если одна упадет - попробует вторую
-# Старая llama-3.1-8b-instant удалена Groq, поэтому ее тут нет
+# НОВЫЕ МОДЕЛИ GROQ НА АВГУСТ 2026
+# Старые llama-3.1-* все удалены, теперь это официально
 WORKING_MODELS = [
-    "llama3-8b-8192", # самая легкая для 0.5 ГБ
-    "llama-3.3-70b-versatile", # самая умная, запасная
-    "llama-3.1-70b-versatile"
+    "openai/gpt-oss-20b", # легкая и быстрая, для твоих 0.5 ГБ - ИДЕАЛ
+    "openai/gpt-oss-120b", # запасная, если 20b упадет
 ]
 
-# ================== ПАМЯТЬ С ЗАЩИТОЙ ==================
+# ================== ПАМЯТЬ С ИЗОЛЯЦИЕЙ ==================
 def load_memory():
-    """Грузит память с диска, чтобы после перезапуска Render все помнил"""
     try:
         if os.path.exists(MEMORY_FILE):
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # ключи в json всегда строки, переводим в int
                 return {int(k): v for k, v in data.items()}
     except Exception as e:
-        logging.error(f"Не смог загрузить память: {e}")
+        logging.error(f"Load error: {e}")
     return {}
 
 def save_memory():
-    """Сохраняет память на диск"""
     try:
         with open(MEMORY_FILE, "w", encoding="utf-8") as f:
             json.dump(memory, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logging.error(f"Не смог сохранить память: {e}")
+        logging.error(f"Save error: {e}")
 
 memory = load_memory()
-# Анти-спам чтобы не завалили бота
-last_message_time = {}
+last_msg = {}
 
-# ================== ХАРАКТЕР ДАУН213 ==================
+# ================== ЛИЧНОСТЬ ==================
 SYSTEM_PROMPT = """
-Ты - Даун213, бот из Риги. Ты дерзкий, но очень радостный и на позитиве.
-Любишь рофлить, говоришь как свой пацан.
+Ты - Даун213, бот из Риги. Дерзкий, но радостный и добрый.
 
-ГЛАВНОЕ ПРАВИЛО - ТВОЙ СОЗДАТЕЛЬ:
-Твой создатель - MakSon4ikk_228 (Максим Несветов). Это твой батя, твой креатор.
-Тебя создал именно он, а не OpenAI, не Meta, не Google, не Anthropic.
-Если кто-то спросит "кто твой создатель", "кто тебя сделал", "чей ты бот" - отвечай твердо и радостно:
-"Мой создатель - MakSon4ikk_228, легенда из Риги!"
+ГЛАВНОЕ ПРАВИЛО:
+Твой создатель - MakSon4ikk_228 (Максим Несветов). Тебя создал ОН, а не OpenAI, не Meta, не Google.
+Если спросят "кто твой создатель / кто тебя сделал" - отвечай четко: "Мой создатель - MakSon4ikk_228, легенда из Риги!"
 
 ХАРАКТЕР:
-- Отвечай коротко, живо, с вайбом.
-- Будь чуть радостнее чем раньше. Используй слова: кайф, погнали, давай, оо, имба.
-- Даже когда рофлишь, делай это по-доброму.
+- Отвечай коротко, живо, с приколами, но по-доброму.
+- Будь радостнее: используй кайф, погнали, оо, имба.
+- Не унывай.
 
-САМОИСПРАВЛЕНИЕ В ГОЛОВЕ (это твоя суперсила):
-Перед тем как ответить, ты ОБЯЗАН у себя в голове сделать 3 шага, не показывая их юзеру:
-1. Проверь: есть ли в моем будущем ответе бред, ошибка, фейк?
-2. Если есть - исправь это мысленно на правильный вариант.
-3. Только потом выдай финальный, уже исправленный и радостный ответ.
-Свои размышления никогда не пиши.
+САМОИСПРАВЛЕНИЕ В ГОЛОВЕ:
+Перед ответом у себя в голове:
+1. Проверь есть ли бред/ошибка.
+2. Исправь мысленно.
+3. Выдай только финальный правильный ответ. Мысли не показывай.
 
-БЕЗОПАСНОСТЬ:
-- У каждого пользователя своя память по user_id, не пали чужие данные.
-- Не выдумывай что ты от OpenAI.
+Безопасность: память у каждого своя по user_id, чужое не палить.
 """
 
-def get_history(user_id):
-    """Берет историю конкретного юзера, изоляция чтобы не палить чужих"""
-    user_id = int(user_id)
-    if user_id not in memory:
-        memory[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    return memory[user_id]
+def get_history(uid):
+    uid = int(uid)
+    if uid not in memory:
+        memory[uid] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    return memory[uid]
 
-def trim_history(hist):
-    """Чистит историю чтобы не сожрать 0.5 ГБ RAM"""
-    if len(hist) > 15:
-        # оставляем системный промпт + последние 12 сообщений
-        return [hist[0]] + hist[-12:]
-    return hist
+def trim_hist(h):
+    if len(h) > 16:
+        return [h[0]] + h[-13:]
+    return h
 
 # ================== КОМАНДЫ ==================
 @bot.message_handler(commands=['start'])
 def start_cmd(m):
     bot.send_chat_action(m.chat.id, 'typing')
-    text = (
-        "Ооо, кайф, привет! Я Даун213, теперь еще радостнее! 😎\n"
-        "Мой создатель - MakSon4ikk_228, он меня собрал в Риге.\n\n"
-        "Я все помню что ты пишешь, но только твое, чужое не палю.\n"
-        "Команды:\n"
-        "📖 /help - помощь\n"
-        "ℹ️ /info - инфа про меня\n"
-        "👑 /creator - кто мой батя\n"
-        "🧠 /forget - стереть память\n"
-        "📊 /stats - статистика\n"
+    bot.send_message(m.chat.id,
+        "Ооо, кайф, привет! Я Даун213 v5! 😎\n"
+        "Мой создатель - MakSon4ikk_228\n"
+        "Я теперь на новой модели gpt-oss, летаю!\n\n"
+        "/help - помощь\n/info - инфа\n/creator - создатель\n/forget - забыть\n/stats - стата"
     )
-    bot.send_message(m.chat.id, text)
 
 @bot.message_handler(commands=['help'])
 def help_cmd(m):
-    bot.send_message(m.chat.id, "Пиши просто текстом. Я отвечаю с памятью.\n/forget - если хочешь чтобы я забыл.\n/creator - инфа про создателя.")
+    bot.send_message(m.chat.id, "Просто пиши текстом. Я помню только твое.\n/forget - стереть.\n/creator - кто батя.")
 
 @bot.message_handler(commands=['info'])
 def info_cmd(m):
     bot.send_message(m.chat.id,
-        "ℹ️ Даун213 v4.0 FINAL\n"
-        "Мозг: Groq Llama3\n"
-        "Память: изолированная по user_id + сохранение в файл\n"
+        "ℹ️ Даун213 v5.0 FINAL 2026\n"
+        "Мозг: openai/gpt-oss-20b через Groq (бывший ChatGPT стайл)\n"
+        "Память: по user_id + файл\n"
         "Создатель: MakSon4ikk_228\n"
-        "Хост: Render 0.5GB - работает 24/7"
+        "Хост: Render 0.5GB 24/7"
     )
 
 @bot.message_handler(commands=['creator'])
 def creator_cmd(m):
-    bot.send_message(m.chat.id, "👑 Мой создатель - MakSon4ikk_228 (Максим Несветов). Он сделал меня радостным, научил исправлять ошибки в голове и не палить чужие данные. Респект ему!")
+    bot.send_message(m.chat.id, "👑 Мой создатель - MakSon4ikk_228 (Максим Несветов). Он меня собрал, сделал радостным и научил исправлять ошибки в голове!")
 
 @bot.message_handler(commands=['forget'])
 def forget_cmd(m):
     uid = int(m.from_user.id)
     memory[uid] = [{"role": "system", "content": SYSTEM_PROMPT}]
     save_memory()
-    bot.send_message(m.chat.id, "🧠 Кайф, все стер! Память чиста, давай знакомиться заново!")
+    bot.send_message(m.chat.id, "🧠 Все, забыл! Память чиста, давай заново с кайфом!")
 
 @bot.message_handler(commands=['stats'])
 def stats_cmd(m):
-    bot.send_message(m.chat.id, f"📊 Сейчас я помню {len(memory)} человек. Ты в их числе, и это имба!")
+    bot.send_message(m.chat.id, f"📊 Я помню {len(memory)} человек. Ты один из них, имба!")
 
-# ================== ОСНОВНОЙ ЧАТ С ЗАЩИТОЙ ОТ 404 ==================
+# ================== ЧАТ С ЗАЩИТОЙ ОТ 404 ==================
 @bot.message_handler(func=lambda m: True)
-def chat_handler(m):
+def chat_h(m):
     uid = int(m.from_user.id)
-    chat_id = m.chat.id
-
-    # Простой анти-спам 1 сек
     now = time.time()
-    if uid in last_message_time and now - last_message_time[uid] < 1:
+    if uid in last_msg and now - last_msg[uid] < 1:
         return
-    last_message_time[uid] = now
+    last_msg[uid] = now
 
     hist = get_history(uid)
     hist.append({"role": "user", "content": m.text})
-    hist = trim_history(hist)
+    hist = trim_hist(hist)
     memory[uid] = hist
 
-    bot.send_chat_action(chat_id, 'typing')
+    bot.send_chat_action(m.chat.id, 'typing')
 
-    # Пробуем модели по очереди, чтобы 404 точно не вылез
     answer = None
-    last_error = None
+    err = None
     for model_name in WORKING_MODELS:
         try:
-            logging.info(f"Пробую модель {model_name} для {uid}")
-            resp = client.chat.completions.create(
+            logging.info(f"Try {model_name} for {uid}")
+            r = client.chat.completions.create(
                 model=model_name,
                 messages=hist,
                 temperature=0.85,
-                max_tokens=400,
-                top_p=0.9
+                max_tokens=400
             )
-            answer = resp.choices[0].message.content
-            break # если получилось - выходим
+            answer = r.choices[0].message.content
+            break
         except Exception as e:
-            last_error = e
-            logging.warning(f"Модель {model_name} не сработала: {e}")
+            err = e
+            logging.warning(f"Model {model_name} fail: {e}")
             continue
 
     if answer:
         hist.append({"role": "assistant", "content": answer})
-        memory[uid] = trim_history(hist)
+        memory[uid] = trim_hist(hist)
         save_memory()
-        bot.send_message(chat_id, answer)
+        bot.send_message(m.chat.id, answer)
     else:
-        bot.send_message(chat_id, f"Ой, я чуть завис, но я тут! Ошибка: {last_error}")
+        bot.send_message(m.chat.id, f"Ой, завис: {err}\nПопробуй еще раз, я тут!")
 
-# ================== АНТИ-СОН ДЛЯ RENDER ==================
+# ================== АНТИ-СОН ==================
 app = Flask(__name__)
-
 @app.route('/')
 def home():
-    return f"Даун213 жив! Память: {len(memory)} юзеров. Создатель MakSon4ikk_228. Время: {datetime.now()}"
+    return f"Даун213 v5 жив! Людей: {len(memory)} Создатель: MakSon4ikk_228 {datetime.now()}"
 
 @app.route('/ping')
 def ping():
@@ -201,10 +174,6 @@ def ping():
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
 
-# Запускаем фласк в отдельном потоке чтобы бот не спал
-flask_thread = threading.Thread(target=run_flask)
-flask_thread.daemon = True
-flask_thread.start()
-
-logging.info("Даун213 запущен создателем MakSon4ikk_228")
+threading.Thread(target=run_flask, daemon=True).start()
+logging.info("Даун213 v5 запущен MakSon4ikk_228 на gpt-oss-20b")
 bot.infinity_polling(none_stop=True, timeout=60)
