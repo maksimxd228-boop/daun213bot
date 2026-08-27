@@ -213,57 +213,49 @@ def safe_eval(expr):
 
 def enhance(p):
     low=p.lower()
-    if client and (len(p)<70 or 'а' in low):
+    is_rtx=any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu'])
+    if is_rtx:
+        return f"Nvidia GeForce RTX 5090 Founders Edition graphics card, product photography, black metal shroud, dual fans, studio lighting on pure white background, ultra detailed, 8k, {p}"
+    if client:
         try:
             comp=client.chat.completions.create(
                 model=TEXT_FALL,
                 messages=[
-                    {"role":"system","content":"Translate to English prompt. If rtx, ртх, 5090, видеокарта -> Nvidia RTX 5090 graphics card, photorealistic, triple fan, black, studio, white bg, 8k. Only prompt."},
+                    {"role":"system","content":"You are image prompt translator. Translate Russian to English image prompt. Keep ALL details: if bald old cat with glasses, keep bald sphynx cat old man glasses. Do NOT replace with fluffy cat. Add photorealistic, highly detailed, 8k at end. Output ONLY English prompt."},
                     {"role":"user","content":p}
                 ],
-                temperature=0.2,
-                max_tokens=200)
-            eng=comp.choices[0].message.content.strip()
-            eng=eng.replace('"','')
+                temperature=0.3,
+                max_tokens=180)
+            eng=comp.choices[0].message.content.strip().replace('"','').replace("'",'')
             if len(eng)>10:
                 return eng
         except:
             pass
-    if 'ртх' in low or 'rtx' in low or '5090' in low:
-        return f"Nvidia RTX 5090 card, photorealistic, {p}, 8k"
-    if 'видеокарта' in low or 'видюха' in low:
-        return f"Nvidia RTX 5090 card, triple fan, {p}, 8k"
-    return f"{p}, photorealistic, 8k, studio"
+    return f"{p}, photorealistic, highly detailed, 8k, studio lighting"
 
 def gen_img(prompt):
     low=prompt.lower()
-    # --- SWITCHER v69 FIXED ---
     is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu'])
     is_hq = any(k in low for k in ['hq','4k','8k','ультра','детально','фотореализм','realistic'])
-
     if is_rtx:
         final = f"Nvidia GeForce RTX 5090 Founders Edition graphics card, product photography, black metal shroud with silver accents, dual axial fans, RTX logo, studio lighting on pure white background, ultra sharp, 8k, professional product shot, {prompt}"
     else:
         final = enhance(prompt)
         if is_hq:
             final += ", ultra detailed, 8k, sharp focus, highly detailed"
-
     try:
         safe=urllib.parse.quote(final[:600])
         seed=random.randint(1,9999999)
-        # переключатель моделей: flux = красиво, turbo = быстро, sdxl = стабильно
         models = []
         if is_rtx:
             models = ["flux", "flux", "turbo"]
         else:
             models = ["flux", "turbo", "sdxl"]
-
         urls=[]
         for m in models:
             urls.append(f"https://image.pollinations.ai/prompt/{safe}?width=1280&height=1280&nologo=true&seed={seed}&enhance=true&model={m}&nofeed=true")
             seed+=1
         urls.append(f"https://gen.pollinations.ai/image/{safe}?width=1280&height=1280")
-
         for url in urls:
             try:
                 req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*'})
@@ -275,9 +267,7 @@ def gen_img(prompt):
                 continue
     except:
         pass
-    return None
-
-async def ask(cid,text,b64img=None):
+        async def ask(cid,text,b64img=None):
     if client is None:
         return 'Мозг не подключен.'
     stats['total']+=1
@@ -335,7 +325,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v69 FIXED SWITCHER\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v69 FIXED CAT V2\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -399,7 +389,6 @@ async def text_h(update,context):
         context.user_data['awaiting']=True
         await update.message.reply_text("Что нарисовать? кота, rtx 5090 🎨",reply_markup=MAIN_KB)
         return
-    # AUTO-RTX
     auto_keys=['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia','geforce']
     is_auto=any(k in low for k in auto_keys) and len(low)<40
     if is_auto:
@@ -528,7 +517,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v69 FIXED SWITCHER жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v69 FIXED CAT V2 жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -538,7 +527,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v69 FIXED SWITCHER запуск')
+    print('Даун v69 FIXED CAT V2 запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
@@ -560,8 +549,9 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO,photo_h))
     app.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     app.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v69 FIXED SWITCHER')
+    print('Бот запущен! v69 FIXED CAT V2')
     app.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
     main()
+    return None
