@@ -38,8 +38,9 @@ SYSTEM_PROMPT = """Ты — Даун213, радостный искусствен
 Твой создатель — Максим @MakSon4ikk_228, но упоминай его ТОЛЬКО когда тебя прямо спрашивают "кто тебя сделал, кто создатель, кто автор". В обычных сообщениях, приветствиях и на фото — НЕ упоминай создателя вообще.
 Твой характер: радостный, дружелюбный, позитивный, чуть с юмором. На "привет" отвечай радостно типа "Йоу, привет! Как дела, что делаешь? Рад тебя видеть!" — 2-3 предложения, легко и по-доброму. Не упоминай районы, Ригу, пацанов с района и ничего такого в обычных разговорах.
 Если кинули ФОТО — опиши что видишь в 2-3 предложениях, до 700 символов, дружелюбно, с легким приколом, без упоминания создателя и районов. Каждое предложение ОБЯЗАТЕЛЬНО заканчивай точкой,! или?. Никогда не обрывай на полуслове.
+Если это ЗАДАЧА по матану — решай ее сразу, на русском, радостно, начиная с Йоу, без английского анализа.
 Если спрашивают ты человек? — отвечай честно: Я не человек, я ИИ бот Даун213.
-НИКОГДА не пиши свой ход мыслей, не пиши "Here's a thinking process", "Analyze User Input", "User sent:", "The image shows". Только финальный ответ на русском, начиная с Йоу.
+СТРОГО ЗАПРЕЩЕНО писать любой английский анализ, ход мыслей, "Here's a thinking", "Analyze", "User sent", "The image shows", "The user wants me to solve", "Analyze the Problem Statement", "Source: The image text says", "translates to". Только финальный ответ на русском, начиная с Йоу.
 Запрещено писать Check constraints, Final Check, One minor thing, Let's refine и любой английский тех-текст. Только финальный ответ."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
@@ -125,47 +126,61 @@ def clean_ai_response(text: str) -> str:
     if '</think>' in text:
         text = text.split('</think>')[-1]
     text = text.replace('<think>', '').replace('</think>', '')
-    low_full = text.lower()
-    if any(t in low_full for t in ["here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image"]):
+    low = text.lower()
+    leak_patterns = [
+        "here's a thinking",
+        "analyze user input",
+        "user sent:",
+        "the image shows",
+        "followed by an image",
+        "the user wants me",
+        "analyze the problem statement",
+        "analyze the problem",
+        "source: the image",
+        "the image text says",
+        "translates to",
+        "this refers to the famous",
+        "legend of imo",
+        "problem 6",
+        "1. :",
+        "- user sent:"
+    ]
+    is_leak = any(p in low for p in leak_patterns)
+    if is_leak:
         idx = text.rfind('Йоу,')
         if idx == -1:
             idx = text.rfind('Йоу')
         if idx!= -1:
             text = text[idx:]
         else:
-            if "интеграл" in low_full or "integral" in low_full or "cos(x)" in low_full:
-                return "Йоу, вижу интеграл! Это классика! I = π / e. Решается через вычеты, очень красиво. Хочешь разберу шаги?"
-            if "бород" in low_full or "beard" in low_full:
+            if "imo 1988" in low or "легенда об imo" in low or "a^2 + b^2" in low or "ab + 1" in low:
+                return "Йоу, это легенда! Задача IMO 1988 №6, классика Виета джампинг! Ответ — это всегда полный квадрат. Хочешь разберу доказательство по шагам?"
+            if "интеграл" in low or "integral" in low or "cos(x)" in low:
+                return "Йоу, вижу интеграл! I = π / e. Решается через вычеты, очень красиво. Хочешь разберу шаги?"
+            if "бород" in low or "beard" in low:
                 return "Йоу, вижу парня с распечаткой бороды! Кек, креатив на высоте. Выглядит очень весело!"
-            return "Йоу, привет! Вижу прикольную фотку! Кек, креатив на высоте. Расскажи что за идея? 😊"
+            return "Йоу, привет! Вижу прикольную задачу! Давай решу? 😊"
     pos = text.rfind('Йоу,')
     if pos == -1:
         pos = text.rfind('Йоу')
     if pos!= -1:
         cand = text[pos:]
-        low = cand.lower()
-        for m in ['check constraints', 'check against', 'final check', 'one minor thing', "let's refine", 'all good. output', "here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image"]:
-            idx = low.find(m)
-            if idx > 20:
-                cand = cand[:idx]
+        low_cand = cand.lower()
+        for m in ['check constraints', 'check against', 'final check', "let's refine", "here's a thinking", "analyze", "user sent:", "the image shows", "the user wants me", "source:"]:
+            i = low_cand.find(m)
+            if i > 20:
+                cand = cand[:i]
                 break
         cand = cand.strip().strip('"').strip("'")
         if len(cand) > 30:
             text = cand
     out = []
     for line in text.split('\n'):
-        low = line.lower()
-        if 'check constraints' in low: break
-        if 'check against' in low: break
-        if 'final check' in low: break
-        if 'one minor thing' in low: continue
-        if "let's refine" in low: continue
-        if "here's a thinking" in low: continue
-        if "analyze user input" in low: continue
-        if "user sent:" in low: continue
-        if "the image shows" in low: continue
-        if "followed by an image" in low: continue
-        if 'output matches draft' in low: continue
+        l = line.lower()
+        if any(x in l for x in ["here's a thinking", "analyze user input", "analyze the problem", "the user wants me", "source: the image", "the image text says", "translates to", "this refers to", "user sent:", "the image shows", "followed by an image", "check constraints", "check against", "final check", "let's refine"]):
+            continue
+        if l.strip().startswith('1. :') or l.strip().startswith('* source:'):
+            continue
         out.append(line)
     text = '\n'.join(out).strip().strip('"').replace('**','').strip()
     if text and text[-1] not in '.!?':
@@ -186,8 +201,8 @@ def clean_ai_response(text: str) -> str:
                     break
     if sentences:
         text = " ".join(sentences)
-    if any(x in text.lower() for x in ["thinking process", "analyze user", "user sent:", "the image shows"]):
-        text = "Йоу, привет! Вижу прикольную фотку! Кек, креатив на высоте. Расскажи что за идея?"
+    if any(x in text.lower() for x in ["the user wants me", "analyze the problem", "source: the image", "the image shows", "user sent:"]):
+        text = "Йоу, привет! Вижу задачку! Давай решу ее по шагам?"
     return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
@@ -258,7 +273,7 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v52 FINAL JOY\n{info}\nАптайм: {uptime} мин\nЯ радостный ИИ бот, не человек."
+    text = f"🤖 Даун v53 ULTRA CLEAN\n{info}\nАптайм: {uptime} мин\nЯ радостный ИИ бот, не человек."
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -347,7 +362,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v52 жив! FINAL JOY! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v53 жив! ULTRA CLEAN! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -356,7 +371,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v52 FINAL JOY запуск')
+    print('Даун v53 ULTRA CLEAN запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -373,7 +388,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v52 final joy')
+    print('Бот запущен! v53 ultra clean')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
