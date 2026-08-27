@@ -170,7 +170,12 @@ def safe_eval(expr):
             raise ValueError("no")
         tree = ast.parse(expr, mode='eval')
         return eval_node(tree.body)
-    except: return Nonedef enhance_prompt_for_image(user_prompt):
+    except:
+        return None
+
+# --- next function ---
+
+def enhance_prompt_for_image(user_prompt):
     low = user_prompt.lower()
     if groq_client and (len(user_prompt) < 70 or any(c in low for c in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя')):
         try:
@@ -268,7 +273,7 @@ async def about_h(update, context):
     uptime = int((time.time() - chat_stats['start_time'])//60)
     first_str = format_date_short(FIRST_LAUNCH_DATE)
     time_text = format_time_full()
-    text = f"🤖 Даун v67 FIXED x5 FINAL\n{info}\n🚀 {first_str}\n{time_text}\n⏱ {uptime} мин\n🎨 Flux SMART BUTTON\n{get_stats_text()}"
+    text = f"🤖 Даун v68 GITHUB\n{info}\n🚀 {first_str}\n{time_text}\n⏱ {uptime} мин\n🎨 Flux SMART BUTTON\n{get_stats_text()}"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update, context):
@@ -402,7 +407,7 @@ async def sticker_h(update, context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v67 FIXED x5 FINAL жив! {format_date_short(FIRST_LAUNCH_DATE)} | {format_time_full()} | {get_stats_text()}"
+    return f"Даун v68 GITHUB жив! {format_date_short(FIRST_LAUNCH_DATE)} | {format_time_full()} | {get_stats_text()}"
 @app_flask.route('/health')
 def health(): return 'OK',200
 
@@ -410,7 +415,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v67 FIXED x5 FINAL запуск')
+    print('Даун v68 GITHUB запуск')
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
@@ -429,10 +434,4 @@ def main():
     application.add_handler(CommandHandler('limit',limit_h))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text_h))
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
-    application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
-    application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v67 FIXED x5 FINAL')
-    application.run_polling(drop_pending_updates=True)
-
-if __name__=='__main__':
-    main()
+    application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h
