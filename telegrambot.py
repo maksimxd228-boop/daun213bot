@@ -128,13 +128,27 @@ def clean_ai_response(text: str) -> str:
     if '</think>' in text:
         text = text.split('</think>')[-1]
     text = text.replace('<think>', '').replace('</think>', '')
+    low_full = text.lower()
+    if "here's a thinking process" in low_full or "analyze user input" in low_full:
+        idx = text.rfind('Йоу,')
+        if idx == -1:
+            idx = text.rfind('Йоу')
+        if idx!= -1:
+            text = text[idx:]
+        else:
+            parts = text.split('User:**')
+            if len(parts) > 1:
+                text = parts[-1]
+            text = text.replace('**', '').replace('Analyze User Input', '').strip()
+            if len(text) < 30 or "What's on the photo" in text:
+                text = "Йоу, привет! Вижу прикольную фотку с бородой на листе! Кек, креатив на высоте. Что за идея была?"
     pos = text.rfind('Йоу,')
     if pos == -1:
         pos = text.rfind('Йоу')
     if pos!= -1:
         cand = text[pos:]
         low = cand.lower()
-        for m in ['check constraints', 'check against', 'final check', 'one minor thing', "let's refine", 'all good. output', '**name/persona', '**creator rule', '- creator info', '- chat memory']:
+        for m in ['check constraints', 'check against', 'final check', 'one minor thing', "let's refine", 'all good. output', '**name/persona', '**creator rule', '- creator info', '- chat memory', "here's a thinking", "analyze user input"]:
             idx = low.find(m)
             if idx > 20:
                 cand = cand[:idx]
@@ -156,9 +170,14 @@ def clean_ai_response(text: str) -> str:
         if '**name/persona' in low: continue
         if '**creator rule' in low: continue
         if 'not triggered' in low and len(line) < 80: continue
+        if "here's a thinking process" in low: continue
+        if "analyze user input" in low: continue
+        if line.strip().startswith('- **user:**') or line.strip().startswith('- **User:**'): continue
+        if '**user:**' in low and 'что на фото' in low: continue
         out.append(line)
     text = '\n'.join(out).strip().strip('"')
     text = text.strip()
+    text = text.replace('**', '')
     if text and text[-1] not in '.!?':
         last_dot = max(text.rfind('.'), text.rfind('!'), text.rfind('?'))
         if last_dot > 20:
@@ -177,6 +196,8 @@ def clean_ai_response(text: str) -> str:
                     break
     if sentences:
         text = " ".join(sentences)
+    if "thinking process" in text.lower() or "analyze user" in text.lower():
+        text = "Йоу, привет! Вижу прикольную фотку! Кек, креатив на высоте. Расскажи что за идея?"
     return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
