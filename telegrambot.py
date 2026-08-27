@@ -1,4 +1,6 @@
-import os, sys, base64, logging, time, threading, platform, re, random, ast, operator, requests
+import os, sys, base64, logging, time, threading, platform, re, random, ast, operator
+import urllib.request
+import urllib.parse
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
@@ -57,9 +59,8 @@ def format_date_short(dt: datetime) -> str:
     return dt.strftime('%H:%M %d.%m.%Y')
 
 SYSTEM_PROMPT = """Ты — Даун213, дружелюбный, теплый и позитивный бот.
-Создатель — Максим @MakSon4ikk_228, упоминай ТОЛЬКО если спрашивают кто тебя сделал.
+Создатель — Максим @MakSon4ikk_228.
 Характер: теплый, по-дружески. Йоу редко, 1 раз на 4-5 сообщений.
-Если просят нарисовать/сгенерировать картинку — скажи что уже рисую и попроси подождать.
 Формулы без LaTeX: (a^2+b^2)/(ab+1), pi/e.
 """
 
@@ -140,7 +141,6 @@ def clean_text(t: str) -> str:
 def fix_latex_to_plain(text: str) -> str:
     text = text.replace('\\[','').replace('\\]','').replace('\\(','').replace('\\)','').replace('$$','').replace('$','')
     text = re.sub(r'\\frac\{([^{}]+)\}\{([^{}]+)\}', r'(\1)/(\2)', text)
-    text = re.sub(r'\\Delta', 'Delta', text)
     text = re.sub(r'\\', '', text)
     return text.strip()
 
@@ -183,12 +183,12 @@ def safe_eval(expr: str):
 
 def generate_image_pollinations(prompt: str) -> Optional[BytesIO]:
     try:
-        # Улучшаем промпт
-        safe_prompt = requests.utils.quote(prompt[:500])
+        safe_prompt = urllib.parse.quote(prompt[:500])
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&enhance=true"
-        resp = requests.get(url, timeout=30)
-        if resp.status_code == 200 and len(resp.content) > 5000:
-            return BytesIO(resp.content)
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = resp.read()
+            if len(data) > 5000:
+                return BytesIO(data)
     except Exception as e:
         logger.error(f"Image gen failed: {e}")
     return None
@@ -233,10 +233,10 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    await update.message.reply_text(f"Привет, {user}! Рад видеть тебя! Теперь я умею рисовать картинки — нажми 🎨 Картинка или напиши 'нарисуй...'", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Привет, {user}! Теперь я умею рисовать — напиши 'нарисуй...' или жми 🎨", reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🕒 Время — точное время\n🎨 Картинка — генерация картинок, напиши 'нарисуй кота в космосе'\nКидай фото задачи — решу.", reply_markup=MAIN_KB)
+    await update.message.reply_text("🎨 Картинка — напиши 'нарисуй кота в космосе'\n🕒 Время — точное время\nКидай фото задачи — решу.", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
@@ -247,18 +247,7 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime = int((time.time() - chat_stats['start_time'])//60)
     first_str = format_date_short(FIRST_LAUNCH_DATE)
     time_text = format_time_full()
-    text = (
-        f"🤖 Даун v67 IMAGE GEN\n"
-        f"{info}\n"
-        f"🚀 Первый запуск: {first_str}\n"
-        f"{time_text}\n"
-        f"⏱ Аптайм: {uptime} мин\n"
-        f"📝 {TEXT_MODEL}\n"
-        f"👁 {VISION_MODEL}\n"
-        f"🎨 Генерация: Pollinations AI\n"
-        f"{get_stats_text()}\n"
-        f"✅ Умеет рисовать картинки!"
-    )
+    text = f"🤖 Даун v67 FIXED IMAGE\n{info}\n🚀 Первый запуск: {first_str}\n{time_text}\n⏱ Аптайм: {uptime} мин\n📝 {TEXT_MODEL}\n👁 {VISION_MODEL}\n🎨 Генерация: Pollinations (без requests)\n{get_stats_text()}"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -275,10 +264,9 @@ async def time_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(format_time_full(), reply_markup=MAIN_KB)
 
 async def image_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Если команда /image <prompt>
     prompt = ' '.join(context.args) if context.args else ''
     if not prompt:
-        await update.message.reply_text("Напиши что нарисовать! Пример: /image кот в космосе\nИли просто напиши 'нарисуй кота в космосе'", reply_markup=MAIN_KB)
+        await update.message.reply_text("Напиши что нарисовать! Пример: /image кот в космосе", reply_markup=MAIN_KB)
         return
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     await update.message.reply_text(f"Рисую: {prompt}... ⏳", reply_markup=MAIN_KB)
@@ -302,30 +290,28 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt=clean_text(update.message.text)
     if not txt: return
     low = txt.lower()
-    # ГЕНЕРАЦИЯ КАРТИНОК
-    if any(x in low for x in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', '🎨 картинка', 'сгенерируй изображение']):
-        # извлекаем промпт после слова нарисуй
+    if any(x in low for x in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', '🎨 картинка']):
         prompt = txt
-        for word in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', 'сгенерируй изображение', '🎨 картинка']:
+        for word in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', '🎨 картинка']:
             if word in low:
                 prompt = low.split(word,1)[-1].strip(' :,-')
                 break
         if not prompt or len(prompt) < 2:
-            await update.message.reply_text("Что именно нарисовать? Напиши например: нарисуй киберпанк Ригу", reply_markup=MAIN_KB)
+            await update.message.reply_text("Что именно нарисовать? Пример: нарисуй киберпанк Ригу", reply_markup=MAIN_KB)
             return
         await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
-        await update.message.reply_text(f"Рисую: {prompt}... Подожди пару секунд ⏳🎨", reply_markup=MAIN_KB)
+        await update.message.reply_text(f"Рисую: {prompt}... ⏳🎨", reply_markup=MAIN_KB)
         img = generate_image_pollinations(prompt)
         if img:
             chat_stats['images']+=1
             await update.message.reply_photo(photo=img, caption=f"Готово! {prompt}", reply_markup=MAIN_KB)
         else:
-            await update.message.reply_text("Не вышло сгенерить, попробуй другой запрос.", reply_markup=MAIN_KB)
+            await update.message.reply_text("Не вышло, попробуй другой запрос.", reply_markup=MAIN_KB)
         return
-    if any(x in low for x in ['сколько времени', 'который час', 'какое время', '🕒 время', 'точное время']):
+    if any(x in low for x in ['сколько времени', 'который час', '🕒 время', 'точное время']):
         await update.message.reply_text(format_time_full(), reply_markup=MAIN_KB); return
     if 'инфо' in low: await about_h(update, context); return
-    if 'создатель' in low or 'кто тебя сделал' in low or 'кем ты был создан' in low or 'кто твой создатель' in low:
+    if 'создатель' in low or 'кто тебя сделал' in low or 'кем ты был создан' in low:
         kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
         await update.message.reply_text("Меня создал Максим @MakSon4ikk_228!", reply_markup=MAIN_KB)
         await update.message.reply_text("Вот его профиль 👇", reply_markup=kb_inline); return
@@ -377,12 +363,12 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v67 IMAGE GEN жив! Первый запуск: {format_date_short(FIRST_LAUNCH_DATE)} | {format_time_full()} | {get_stats_text()}"
+    return f"Даун v67 FIXED жив! Первый запуск: {format_date_short(FIRST_LAUNCH_DATE)} | {format_time_full()} | {get_stats_text()}"
 @app_flask.route('/health')
 def health(): return 'OK',200
 def run_flask(): app_flask.run(host='0.0.0.0',port=PORT)
 def main():
-    print(f'Даун v67 IMAGE GEN запуск')
+    print(f'Даун v67 FIXED запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -401,7 +387,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v67 image gen')
+    print('Бот запущен! v67 fixed — без requests')
     application.run_polling(drop_pending_updates=True)
 if __name__=='__main__':
     main()
