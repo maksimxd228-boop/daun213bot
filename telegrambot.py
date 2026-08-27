@@ -1,3 +1,4 @@
+
 import os, sys, base64, logging, time
 import threading, platform, re, random
 import ast, operator, urllib.request
@@ -83,8 +84,8 @@ client=None
 try:
     if 'ВСТАВЬ' not in GROQ_KEY:
         client=Groq(api_key=GROQ_KEY)
-except:
-    logger.error('Groq fail')
+except Exception as e:
+    logger.error(f'Groq fail: {e}')
 
 mems={}
 lasts={}
@@ -233,41 +234,50 @@ def enhance(p):
             pass
     return f"{p}, photorealistic, highly detailed, 8k, studio lighting"
 
+
 def gen_img(prompt):
     low=prompt.lower()
+    # --- SWITCHER v69 FIXED ---
     is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu'])
     is_hq = any(k in low for k in ['hq','4k','8k','ультра','детально','фотореализм','realistic'])
+    
     if is_rtx:
         final = f"Nvidia GeForce RTX 5090 Founders Edition graphics card, product photography, black metal shroud with silver accents, dual axial fans, RTX logo, studio lighting on pure white background, ultra sharp, 8k, professional product shot, {prompt}"
     else:
         final = enhance(prompt)
         if is_hq:
             final += ", ultra detailed, 8k, sharp focus, highly detailed"
+    
     try:
         safe=urllib.parse.quote(final[:600])
         seed=random.randint(1,9999999)
+        # переключатель моделей: flux = красиво, turbo = быстро, sdxl = стабильно
         models = []
         if is_rtx:
-            models = ["flux", "flux", "turbo"]
+            models = ["flux", "flux", "turbo"] # для RTX 2 раза пробуем flux
         else:
             models = ["flux", "turbo", "sdxl"]
+            
         urls=[]
         for m in models:
             urls.append(f"https://image.pollinations.ai/prompt/{safe}?width=1280&height=1280&nologo=true&seed={seed}&enhance=true&model={m}&nofeed=true")
             seed+=1
         urls.append(f"https://gen.pollinations.ai/image/{safe}?width=1280&height=1280")
+        
         for url in urls:
             try:
                 req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*'})
                 with urllib.request.urlopen(req,timeout=60) as r:
                     d=r.read()
-                    if len(d)>15000:
+                    if len(d)>15000: # фильтр на мусор
                         return BytesIO(d)
             except:
                 continue
     except:
         pass
-        async def ask(cid,text,b64img=None):
+    return None
+
+async def ask(cid,text,b64img=None):
     if client is None:
         return 'Мозг не подключен.'
     stats['total']+=1
@@ -388,18 +398,6 @@ async def text_h(update,context):
     if 'картинка' in low and len(low)<15:
         context.user_data['awaiting']=True
         await update.message.reply_text("Что нарисовать? кота, rtx 5090 🎨",reply_markup=MAIN_KB)
-        return
-    auto_keys=['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia','geforce']
-    is_auto=any(k in low for k in auto_keys) and len(low)<40
-    if is_auto:
-        await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
-        await update.message.reply_text(f"Рисую: {txt}... ⏳🎨",reply_markup=MAIN_KB)
-        im=gen_img(txt)
-        if im:
-            stats['imgs']+=1
-            await update.message.reply_photo(photo=im,caption=f"Готово! {txt}",reply_markup=MAIN_KB)
-        else:
-            await update.message.reply_text("Не вышло, попробуй еще раз.",reply_markup=MAIN_KB)
         return
     awaiting=context.user_data.get('awaiting',False)
     is_img_req=awaiting
@@ -549,9 +547,8 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO,photo_h))
     app.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     app.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v69 FIXED CAT V2')
+    print('Бот запущен! v69')
     app.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
     main()
-    return None
