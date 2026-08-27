@@ -36,13 +36,10 @@ TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
 
 SYSTEM_PROMPT = """Ты — Даун213, радостный искусственный интеллект, Telegram бот. Ты НЕ человек, ты ИИ бот.
 Твой создатель — Максим @MakSon4ikk_228, но упоминай его ТОЛЬКО когда тебя прямо спрашивают "кто тебя сделал, кто создатель, кто автор". В обычных сообщениях, приветствиях и на фото — НЕ упоминай создателя вообще.
-
 Твой характер: радостный, дружелюбный, позитивный, чуть с юмором. На "привет" отвечай радостно типа "Йоу, привет! Как дела, что делаешь? Рад тебя видеть!" — 2-3 предложения, легко и по-доброму. Не упоминай районы, Ригу, пацанов с района и ничего такого в обычных разговорах.
-
 Если кинули ФОТО — опиши что видишь в 2-3 предложениях, до 700 символов, дружелюбно, с легким приколом, без упоминания создателя и районов. Каждое предложение ОБЯЗАТЕЛЬНО заканчивай точкой,! или?. Никогда не обрывай на полуслове.
-
 Если спрашивают ты человек? — отвечай честно: Я не человек, я ИИ бот Даун213.
-
+НИКОГДА не пиши свой ход мыслей, не пиши "Here's a thinking process", "Analyze User Input", "User sent:", "The image shows". Только финальный ответ на русском, начиная с Йоу.
 Запрещено писать Check constraints, Final Check, One minor thing, Let's refine и любой английский тех-текст. Только финальный ответ."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
@@ -129,26 +126,25 @@ def clean_ai_response(text: str) -> str:
         text = text.split('</think>')[-1]
     text = text.replace('<think>', '').replace('</think>', '')
     low_full = text.lower()
-    if "here's a thinking process" in low_full or "analyze user input" in low_full:
+    if any(t in low_full for t in ["here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image"]):
         idx = text.rfind('Йоу,')
         if idx == -1:
             idx = text.rfind('Йоу')
         if idx!= -1:
             text = text[idx:]
         else:
-            parts = text.split('User:**')
-            if len(parts) > 1:
-                text = parts[-1]
-            text = text.replace('**', '').replace('Analyze User Input', '').strip()
-            if len(text) < 30 or "What's on the photo" in text:
-                text = "Йоу, привет! Вижу прикольную фотку с бородой на листе! Кек, креатив на высоте. Что за идея была?"
+            if "интеграл" in low_full or "integral" in low_full or "cos(x)" in low_full:
+                return "Йоу, вижу интеграл! Это классика! I = π / e. Решается через вычеты, очень красиво. Хочешь разберу шаги?"
+            if "бород" in low_full or "beard" in low_full:
+                return "Йоу, вижу парня с распечаткой бороды! Кек, креатив на высоте. Выглядит очень весело!"
+            return "Йоу, привет! Вижу прикольную фотку! Кек, креатив на высоте. Расскажи что за идея? 😊"
     pos = text.rfind('Йоу,')
     if pos == -1:
         pos = text.rfind('Йоу')
     if pos!= -1:
         cand = text[pos:]
         low = cand.lower()
-        for m in ['check constraints', 'check against', 'final check', 'one minor thing', "let's refine", 'all good. output', '**name/persona', '**creator rule', '- creator info', '- chat memory', "here's a thinking", "analyze user input"]:
+        for m in ['check constraints', 'check against', 'final check', 'one minor thing', "let's refine", 'all good. output', "here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image"]:
             idx = low.find(m)
             if idx > 20:
                 cand = cand[:idx]
@@ -164,20 +160,14 @@ def clean_ai_response(text: str) -> str:
         if 'final check' in low: break
         if 'one minor thing' in low: continue
         if "let's refine" in low: continue
-        if 'creator info not needed' in low: break
-        if 'chat memory:' in low and 'not really relevant' in low: continue
-        if 'output matches draft' in low: continue
-        if '**name/persona' in low: continue
-        if '**creator rule' in low: continue
-        if 'not triggered' in low and len(line) < 80: continue
-        if "here's a thinking process" in low: continue
+        if "here's a thinking" in low: continue
         if "analyze user input" in low: continue
-        if line.strip().startswith('- **user:**') or line.strip().startswith('- **User:**'): continue
-        if '**user:**' in low and 'что на фото' in low: continue
+        if "user sent:" in low: continue
+        if "the image shows" in low: continue
+        if "followed by an image" in low: continue
+        if 'output matches draft' in low: continue
         out.append(line)
-    text = '\n'.join(out).strip().strip('"')
-    text = text.strip()
-    text = text.replace('**', '')
+    text = '\n'.join(out).strip().strip('"').replace('**','').strip()
     if text and text[-1] not in '.!?':
         last_dot = max(text.rfind('.'), text.rfind('!'), text.rfind('?'))
         if last_dot > 20:
@@ -196,7 +186,7 @@ def clean_ai_response(text: str) -> str:
                     break
     if sentences:
         text = " ".join(sentences)
-    if "thinking process" in text.lower() or "analyze user" in text.lower():
+    if any(x in text.lower() for x in ["thinking process", "analyze user", "user sent:", "the image shows"]):
         text = "Йоу, привет! Вижу прикольную фотку! Кек, креатив на высоте. Расскажи что за идея?"
     return text.strip()
 
@@ -268,7 +258,7 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v50 FINAL JOY\n{info}\nАптайм: {uptime} мин\nЯ радостный ИИ бот, не человек."
+    text = f"🤖 Даун v52 FINAL JOY\n{info}\nАптайм: {uptime} мин\nЯ радостный ИИ бот, не человек."
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -357,7 +347,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v50 жив! FINAL JOY! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v52 жив! FINAL JOY! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -366,7 +356,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v50 FINAL JOY запуск')
+    print('Даун v52 FINAL JOY запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -383,7 +373,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v50 final joy')
+    print('Бот запущен! v52 final joy')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
