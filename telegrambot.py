@@ -236,25 +236,41 @@ def enhance(p):
     return f"{p}, photorealistic, 8k, studio"
 
 def gen_img(prompt):
-    final=enhance(prompt)
+    low=prompt.lower()
+    # --- SWITCHER v69 FIXED ---
+    is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu'])
+    is_hq = any(k in low for k in ['hq','4k','8k','ультра','детально','фотореализм','realistic'])
+
+    if is_rtx:
+        final = f"Nvidia GeForce RTX 5090 Founders Edition graphics card, product photography, black metal shroud with silver accents, dual axial fans, RTX logo, studio lighting on pure white background, ultra sharp, 8k, professional product shot, {prompt}"
+    else:
+        final = enhance(prompt)
+        if is_hq:
+            final += ", ultra detailed, 8k, sharp focus, highly detailed"
+
     try:
-        safe=urllib.parse.quote(final[:500])
-        seed=random.randint(1,999999)
-        u1=f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
-        u2=f"https://gen.pollinations.ai/image/{safe}?width=1024&height=1024"
-        for url in [u1,u2]:
+        safe=urllib.parse.quote(final[:600])
+        seed=random.randint(1,9999999)
+        # переключатель моделей: flux = красиво, turbo = быстро, sdxl = стабильно
+        models = []
+        if is_rtx:
+            models = ["flux", "flux", "turbo"]
+        else:
+            models = ["flux", "turbo", "sdxl"]
+
+        urls=[]
+        for m in models:
+            urls.append(f"https://image.pollinations.ai/prompt/{safe}?width=1280&height=1280&nologo=true&seed={seed}&enhance=true&model={m}&nofeed=true")
+            seed+=1
+        urls.append(f"https://gen.pollinations.ai/image/{safe}?width=1280&height=1280")
+
+        for url in urls:
             try:
-                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
-                with urllib.request.urlopen(req,timeout=45) as r:
+                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*'})
+                with urllib.request.urlopen(req,timeout=60) as r:
                     d=r.read()
-                    ct=r.headers.get('Content-Type','')
-                    if len(d)>8000:
-                        if 'image' in ct:
-                            return BytesIO(d)
-                        if d[:2]==b'\xff\xd8':
-                            return BytesIO(d)
-                        if d[:4]==b'\x89PNG':
-                            return BytesIO(d)
+                    if len(d)>15000:
+                        return BytesIO(d)
             except:
                 continue
     except:
@@ -319,7 +335,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v69\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v69 FIXED SWITCHER\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -382,6 +398,19 @@ async def text_h(update,context):
     if 'картинка' in low and len(low)<15:
         context.user_data['awaiting']=True
         await update.message.reply_text("Что нарисовать? кота, rtx 5090 🎨",reply_markup=MAIN_KB)
+        return
+    # AUTO-RTX
+    auto_keys=['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia','geforce']
+    is_auto=any(k in low for k in auto_keys) and len(low)<40
+    if is_auto:
+        await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
+        await update.message.reply_text(f"Рисую: {txt}... ⏳🎨",reply_markup=MAIN_KB)
+        im=gen_img(txt)
+        if im:
+            stats['imgs']+=1
+            await update.message.reply_photo(photo=im,caption=f"Готово! {txt}",reply_markup=MAIN_KB)
+        else:
+            await update.message.reply_text("Не вышло, попробуй еще раз.",reply_markup=MAIN_KB)
         return
     awaiting=context.user_data.get('awaiting',False)
     is_img_req=awaiting
@@ -499,7 +528,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v69 жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v69 FIXED SWITCHER жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -509,7 +538,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v69 запуск')
+    print('Даун v69 FIXED SWITCHER запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
@@ -531,7 +560,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO,photo_h))
     app.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     app.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v69')
+    print('Бот запущен! v69 FIXED SWITCHER')
     app.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
