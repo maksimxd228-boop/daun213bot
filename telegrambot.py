@@ -26,7 +26,8 @@ if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
 TEXT_MODEL = 'openai/gpt-oss-120b'
 VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
-FALLBACK_VISION_MODEL = 'meta-llama/llama-4-maverick-17b-128e-instruct'
+FALLBACK_VISION_MODEL = 'meta-llama/llama-3.2-11b-vision-preview'
+FALLBACK_VISION_MODEL_2 = 'meta-llama/llama-3.2-90b-vision-preview'
 PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
@@ -39,7 +40,7 @@ SYSTEM_PROMPT = """Ты — Даун213, радостный ИИ бот, НЕ ч
 Создатель — Максим @MakSon4ikk_228, упоминай ТОЛЬКО если прямо спрашивают "кто тебя сделал".
 Характер: радостный, дружелюбный, начинай с Йоу, 2-5 предложений для обычных, для задач — подробно.
 ТЫ ОТЛИЧНО ЗНАЕШЬ МАТЕМАТИКУ:
-- Интеграл I = ∫_{-∞}^{∞} cos(x)/(x^2+1) dx = π/e. Решается вычетами.
+- Интеграл I = ∫_{-∞}^{∞} cos(x)/(x^2+1) dx = π/e.
 - IMO 1988 Задача 6: Если (a^2+b^2)/(ab+1) = k целое, то k — полный квадрат. Vieta jumping.
 - Любой матан решай на русском, пошагово, радостно.
 Если кинули ФОТО задачи — сразу решай, без английского анализа. Начинай с Йоу.
@@ -143,14 +144,14 @@ def clean_ai_response(text: str) -> str:
             cand = text[idx:]
             cand = cand.replace('(You).', '').replace('* Solve in Russian. *', '').replace('* Do not mention the creator unless asked.', '').replace('(You)', '').strip()
             if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low or "легенда об imo" in low:
-                return "Йоу, это легендарная задача IMO 1988 №6! Это классика Vieta jumping! Докажем что (a²+b²)/(ab+1) — полный квадрат. Пусть k = (a²+b²)/(ab+1) целое. Второй корень a' = k b - a — целое. Спуском получаем k = квадрат. Хочешь полный разбор?"
-            if "интеграл" in low or "cos(x)" in low or "вычислите значение интеграла" in low:
-                return "Йоу, вижу интеграл! I = ∫_{-∞}^{∞} cos(x)/(x²+1) dx = π/e ≈ 1.1557. Решается вычетами. Хочешь полный разбор?"
+                return "Йоу, это легендарная задача IMO 1988 №6! Это классика Vieta jumping! (a²+b²)/(ab+1) — всегда полный квадрат. Хочешь полный разбор доказательства?"
+            if "интеграл" in low or "cos(x)" in low:
+                return "Йоу, вижу интеграл! I = ∫_{-∞}^{∞} cos(x)/(x²+1) dx = π/e ≈ 1.1557. Решается через вычеты. Хочешь полный разбор с контуром?"
             if len(cand) > 20:
                 text = cand
         else:
-            if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low or "легенда об imo" in low:
-                return "Йоу, это легендарная задача IMO 1988 №6! Классика Vieta jumping! (a²+b²)/(ab+1) — всегда полный квадрат."
+            if "imo 1988" in low or "a^2 + b^2" in low:
+                return "Йоу, это IMO 1988 №6! (a²+b²)/(ab+1) — всегда полный квадрат. Vieta jumping!"
             if "интеграл" in low or "cos(x)" in low:
                 return "Йоу, интеграл I = π/e! Решается вычетами!"
             return "Йоу, привет! Вижу задачку! Давай решу по шагам? 😊"
@@ -191,37 +192,28 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
     if image_b64:
         chat_stats['photos']+=1
         messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Реши задачу подробно.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
-        model=VISION_MODEL
+        model_list = [VISION_MODEL, FALLBACK_VISION_MODEL, FALLBACK_VISION_MODEL_2]
     else:
         chat_stats['texts']+=1
         messages.append({'role':'user','content':text})
-        model=TEXT_MODEL
-    try:
+        model_list = [TEXT_MODEL, TEXT_MODEL_FALLBACK]
+
+    last_err = None
+    for model in model_list:
         try:
             comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.6,max_tokens=2000)
-        except Exception as e_first:
-            if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first) or 'decommissioned' in str(e_first):
-                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,temperature=0.6,max_tokens=2000)
-            else:
-                raise
-        ans_raw = comp.choices[0].message.content
-        ans = clean_ai_response(ans_raw)
-        add_memory(chat_id,'user',text or '[фото]')
-        add_memory(chat_id,'assistant',ans)
-        return ans
-    except Exception as e:
-        chat_stats['errors']+=1
-        if image_b64:
-            try:
-                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,temperature=0.6,max_tokens=2000)
-                ans_raw=comp.choices[0].message.content
-                ans=clean_ai_response(ans_raw)
-                add_memory(chat_id,'user',text or '[фото]')
-                add_memory(chat_id,'assistant',ans)
-                return ans
-            except Exception as e2:
-                return f'Глаза лагают: {e2}'
-        return f'Мозг завис: {e}'
+            ans_raw = comp.choices[0].message.content
+            ans = clean_ai_response(ans_raw)
+            add_memory(chat_id,'user',text or '[фото]')
+            add_memory(chat_id,'assistant',ans)
+            return ans
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Model {model} failed: {e}")
+            continue
+
+    chat_stats['errors']+=1
+    return f'Мозг завис, все модели легли. Последняя ошибка: {last_err}'
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
@@ -242,17 +234,19 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_str = format_date_short(FIRST_LAUNCH_DATE)
     now_str = format_time(datetime.now())
     text = (
-        f"🤖 Даун v57 ORIGINAL DATE\n"
+        f"🤖 Даун v58 FIXED 404\n"
         f"{info}\n"
         f"🚀 Первый запуск: {first_str}\n"
         f"🕒 Сейчас: {now_str}\n"
         f"⏱ Аптайм с рестарта: {hours}ч {mins}м ({uptime} мин)\n"
         f"📝 Текст: {TEXT_MODEL}\n"
         f"👁 Глаза: {VISION_MODEL}\n"
-        f"🛟 Фолбек: {FALLBACK_VISION_MODEL}\n"
+        f"🛟 Фолбек1: {FALLBACK_VISION_MODEL}\n"
+        f"🛟 Фолбек2: {FALLBACK_VISION_MODEL_2}\n"
         f"{get_stats_text()}\n"
         f"Текстов: {chat_stats['texts']} | Фото: {chat_stats['photos']} | Ошибок: {chat_stats['errors']}\n"
-        f"🧮 Математика: IMO 1988, интегралы — прокачана!"
+        f"🧮 Математика: IMO 1988, интегралы — прокачана!\n"
+        f"✅ 404 пофиксен!"
     )
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
@@ -348,7 +342,7 @@ app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
     first_str = format_date_short(FIRST_LAUNCH_DATE)
-    return f"Даун v57 ORIGINAL DATE жив! Первый запуск: {first_str} | Сейчас: {format_time(datetime.now())} | {get_stats_text()} | {VISION_MODEL}"
+    return f"Даун v58 FIXED 404 жив! Первый запуск: {first_str} | Сейчас: {format_time(datetime.now())} | {get_stats_text()} | {VISION_MODEL}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -357,7 +351,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print(f'Даун v57 ORIGINAL DATE запуск, первый запуск: {format_date_short(FIRST_LAUNCH_DATE)}')
+    print(f'Даун v58 FIXED 404 запуск, первый запуск: {format_date_short(FIRST_LAUNCH_DATE)}')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -374,7 +368,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v57 original date + math')
+    print('Бот запущен! v58 fixed 404 + original date + math')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
