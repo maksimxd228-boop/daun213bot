@@ -34,8 +34,8 @@ MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
 
-SYSTEM_PROMPT = """Ты — Даун213, бот пацана с района Риги. Твой создатель и автор — Максим, ник MakSon4ikk_228, из Риги, Telegram @MakSon4ikk_228. Ты его проект, он тебя собрал с нуля и прокачал. Если кто-то спросит кто тебя сделал, кто твой создатель, кто твой автор — отвечай коротко и четко: Мой создатель — Максим, ник MakSon4ikk_228 из Риги (@MakSon4ikk_228).
-Ты дерзкий, с юмором, йоу братан кек, но умный. Помнишь чат (16 сообщений), отвечаешь по-пацански, но по делу. Если фото — опиши детально."""
+SYSTEM_PROMPT = """Ты — Даун213, бот пацана с района Риги. Твой создатель — Максим, ник MakSon4ikk_228, из Риги, Telegram @MakSon4ikk_228. Если спросят кто создатель — отвечай: Мой создатель — Максим, ник MakSon4ikk_228 из Риги (@MakSon4ikk_228).
+Ты дерзкий, с юмором, йоу братан кек, но умный и по делу. На обычные сообщения отвечай нормально. Если кинули ФОТО — отвечай КОРОТКО: 2-4 предложения, до 500 символов, без списков и пунктов, просто что видишь, на пацанском с приколом. Запрещено писать Check constraints, Final Check, One minor thing, Let's refine, Name/Persona, Creator rule и любой английский технический текст. Только финальный ответ."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -125,34 +125,44 @@ def clean_ai_response(text: str) -> str:
         pos = text.rfind('Йоу')
     if pos!= -1:
         cand = text[pos:]
-        markers = ['\n4. **Check', '\n5. **', '**Check Against', '**Final Check', 'One minor thing', "Let's refine", 'All good. Output matches', '**Name/Persona:**', '**Creator rule:**']
+        markers = ['Check constraints', 'Check Against', 'Final Check', 'One minor thing', "Let's refine", 'All good. Output', '**Name/Persona', '**Creator rule', '- Creator info', '- Chat memory', '- Style', 'Matches.', 'Not really relevant']
         cut = len(cand)
+        low_cand = cand.lower()
         for m in markers:
-            idx = cand.find(m)
-            if idx > 20 and idx < cut:
+            idx = low_cand.find(m.lower())
+            if idx > 15 and idx < cut:
                 cut = idx
         cand = cand[:cut].strip().strip('"').strip("'")
-        if len(cand) > 30:
+        if len(cand) > 20:
             text = cand
-    out_lines = []
+    out = []
     for line in text.split('\n'):
-        if 'Check Against Constraints' in line: continue
-        if 'Final Check against Constraints' in line: continue
-        if 'One minor thing:' in line: continue
-        if "Let's refine it to be more" in line: continue
-        if 'Output matches draft' in line: continue
-        if '**Name/Persona:**' in line: continue
-        if '**Creator rule:**' in line: continue
-        if '**Photo description detailed' in line: continue
-        if '**Language:**' in line: continue
-        if '**Tone:**' in line: continue
-        if '**No extra fluff' in line: continue
-        if 'Not triggered' in line and len(line) < 100: continue
-        if line.strip().startswith('- **') and ('Persona' in line or 'Memory:' in line or 'Task:' in line or 'Screen:' in line): continue
-        out_lines.append(line)
-    text = '\n'.join(out_lines).strip()
-    text = text.strip('"')
-    return text
+        low = line.lower()
+        if 'check constraints' in low: break
+        if 'check against' in low: break
+        if 'final check' in low: break
+        if 'one minor thing' in low: break
+        if "let's refine" in low: break
+        if 'creator info not needed' in low: break
+        if 'chat memory: not really relevant' in low: break
+        if 'output matches draft' in low: continue
+        if '**name/persona' in low: continue
+        if '**creator rule' in low: continue
+        if 'not triggered' in low and len(line) < 80: continue
+        out.append(line)
+    text = '\n'.join(out).strip().strip('"')
+    if len(text) > 650:
+        cur = ""
+        sent_count = 0
+        for ch in text:
+            cur += ch
+            if ch in '.!?' and len(cur) > 20:
+                sent_count += 1
+                if sent_count >= 4:
+                    break
+        if cur:
+            text = cur.strip()
+    return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
     if len(t)<=n: return [t]
@@ -182,10 +192,10 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         model=TEXT_MODEL
     try:
         try:
-            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=1200)
+            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=600)
         except Exception as e_first:
             if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first) or 'decommissioned' in str(e_first):
-                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=1200)
+                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=600)
             else:
                 raise
         ans_raw = comp.choices[0].message.content
@@ -197,7 +207,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         chat_stats['errors']+=1
         if image_b64:
             try:
-                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=1000)
+                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=600)
                 ans_raw=comp.choices[0].message.content
                 ans=clean_ai_response(ans_raw)
                 add_memory(chat_id,'user',text or '[фото]')
@@ -209,7 +219,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    text = f"╭━━━〔 🤖 ДАУН v42 ULTRA CLEAN 〕━━━╮\n Йоу, {user}! 👋 Я пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
+    text = f"╭━━━〔 🤖 ДАУН v44 SHORT PHOTO 〕━━━╮\n Йоу, {user}! Я пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -222,7 +232,7 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v42\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
+    text = f"🤖 Даун v44\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
     kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 @MakSon4ikk_228", url="https://t.me/MakSon4ikk_228")]])
     await update.message.reply_text(text, reply_markup=MAIN_KB)
     await update.message.reply_text("Мой создатель 👇", reply_markup=kb_inline)
@@ -256,7 +266,7 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await about_h(update, context); return
     if 'создатель' in low:
         kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
-        await update.message.reply_text("╭━━━〔 👑 СОЗДАТЕЛЬ 〕━━━╮\n\n Мой создатель — легенда 🔥\n 👑 Максим\n 📍 Рига, Латвия\n 🔗 @MakSon4ikk_228\n 💻 Собрал меня с нуля\n 🚀 Даун213 — его проект\n\n╰━━━━━━━━━━━━━━╯", reply_markup=MAIN_KB)
+        await update.message.reply_text("╭━━━〔 👑 СОЗДАТЕЛЬ 〕━━━╮\n\n Мой создатель — легенда 🔥\n 👑 Максим\n 📍 Рига\n 🔗 @MakSon4ikk_228\n 💻 Собрал меня с нуля\n\n╰━━━━━━━━━━━━━━╯", reply_markup=MAIN_KB)
         await update.message.reply_text("Жми чтобы перейти в профиль 👇", reply_markup=kb_inline)
         return
     if 'забыть' in low:
@@ -313,7 +323,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v42 жив! ULTRA CLEAN! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v44 жив! SHORT PHOTO! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -322,7 +332,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v42 ULTRA CLEAN NO LEAK запуск')
+    print('Даун v44 SHORT PHOTO FIX запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -339,7 +349,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v42 ultra clean')
+    print('Бот запущен! v44 short photo fix')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
