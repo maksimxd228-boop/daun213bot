@@ -2,7 +2,7 @@ import os, sys, base64, logging, time, threading, platform, re
 from io import BytesIO
 from datetime import datetime
 from typing import Optional, List, Dict
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from groq import Groq
 from flask import Flask
@@ -31,10 +31,10 @@ PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
 MAX_TEXT_LEN = 2000
-ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'daun213'
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
-SYSTEM_PROMPT = """Ты — Даун v37 FULL KB FIXED MODELS, пацан с района Риги. Твой создатель — Максим Несветов, ник daun213, живет в Риге. ТЕБЯ СДЕЛАЛ МАКСИМ, НЕ OpenAI, НЕ Meta, НЕ Groq. Если кто-то спросит кто тебя создал — отвечай: Меня создал Максим Несветов (daun213) из Риги. Никакой OpenAI.
+SYSTEM_PROMPT = """Ты — Даун213, бот пацана с района Риги. Твой создатель и автор — Максим, ник MakSon4ikk_228, из Риги, Telegram @MakSon4ikk_228. Ты его проект, он тебя собрал с нуля и прокачал. Если кто-то спросит кто тебя сделал, кто твой создатель, кто твой автор — отвечай коротко и четко: Мой создатель — Максим, ник MakSon4ikk_228 из Риги (@MakSon4ikk_228).
 Ты дерзкий, с юмором, йоу братан кек, но умный. Помнишь чат (16 сообщений), отвечаешь по-пацански, но по делу. Если фото — опиши детально."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
@@ -171,9 +171,9 @@ async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f'/start {chat_id} {user}')
     markup = MAIN_KB
     text = f"""
-╭━━━〔 🤖 ДАУН v37 FULL KB FIXED 〕━━━╮
+╭━━━〔 🤖 ДАУН v40 MakSon4ikk_228 〕━━━╮
   Йоу, {user}! 👋 Я пофикшен!
-  Создатель — Максим Несветов!
+  Создатель — Максим @MakSon4ikk_228!
 """
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
@@ -187,8 +187,12 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v37\n👑 Создатель: Максим Несветов @daun213\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
+    text = f"🤖 Даун v40\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
+    kb_inline = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👑 @MakSon4ikk_228", url="https://t.me/MakSon4ikk_228")]
+    ])
     await update.message.reply_text(text, reply_markup=MAIN_KB)
+    await update.message.reply_text("Мой создатель 👇", reply_markup=kb_inline)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\nФолбек: {FALLBACK_VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
@@ -218,11 +222,29 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'инфо' in low:
         await about_h(update, context); return
     if 'создатель' in low:
-        await update.message.reply_text("👑 Создатель: Максим Несветов @daun213 Рига! Я сделан Максимом, не OpenAI!", reply_markup=MAIN_KB); return
+        kb_inline = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]
+        ])
+        await update.message.reply_text(
+            "╭━━━〔 👑 СОЗДАТЕЛЬ 〕━━━╮\n\n"
+            " Мой создатель — легенда 🔥\n"
+            " 👑 Максим\n"
+            " 📍 Рига, Латвия\n"
+            " 🔗 @MakSon4ikk_228\n"
+            " 💻 Собрал меня с нуля\n"
+            " 🚀 Даун213 — его проект\n\n"
+            "╰━━━━━━━━━━━━━━╯",
+            reply_markup=MAIN_KB
+        )
+        await update.message.reply_text(
+            "Жми чтобы перейти в профиль 👇",
+            reply_markup=kb_inline
+        )
+        return
     if 'забыть' in low:
         clear_memory(update.effective_chat.id); await update.message.reply_text("Память стерта!", reply_markup=MAIN_KB); return
     if 'админу' in low:
-        await update.message.reply_text("Пиши @daun213", reply_markup=MAIN_KB); return
+        await update.message.reply_text("Пиши @MakSon4ikk_228", reply_markup=MAIN_KB); return
     if 'помощ' in low:
         await help_h(update, context); return
     if 'модель' in low:
@@ -273,7 +295,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v37 жив! FIXED MODELS! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v40 жив! MakSon4ikk_228! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -284,7 +306,7 @@ def run_flask():
 start_time=time.time()
 
 def main():
-    print('Даун v37 - gpt-oss-120b + qwen3.6-27b vision - запуск')
+    print('Даун v40 MakSon4ikk_228 PROFILE LINK - запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -301,7 +323,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v37 fixed vision qwen3.6-27b')
+    print('Бот запущен! v40 MakSon4ikk_228 link')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
