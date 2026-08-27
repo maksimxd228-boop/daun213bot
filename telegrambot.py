@@ -7,7 +7,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 from groq import Groq
 from flask import Flask
 
-# ==================== ПОИСК ТОКЕНОВ ====================
 def get_env_smart(*names: str) -> Optional[str]:
     for name in names:
         val = os.getenv(name)
@@ -25,16 +24,17 @@ GROQ_API_KEY = get_env_smart('GROQ_API_KEY','GROQ','GROQ_KEY')
 if not TELEGRAM_TOKEN: TELEGRAM_TOKEN = 'ВСТАВЬ_ТОКЕН'
 if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
-TEXT_MODEL = 'llama-3.3-70b-versatile'
+TEXT_MODEL = 'llama-3.1-70b-versatile'
 VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
-FALLBACK_VISION_MODEL = 'llama-3.2-11b-vision-preview'
+FALLBACK_VISION_MODEL = 'llama-3.2-90b-vision-preview'
 PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
 MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'daun213'
 
-SYSTEM_PROMPT = """Ты — Даун v32 FINAL. Пацан с района, йоу братан кек лол, но прокачался и стал умнее. Помнишь чат, думаешь логично. Если фото - опиши детально."""
+TEXT_MODEL_FALLBACK = 'llama-3.1-8b-instant'
+SYSTEM_PROMPT = """Ты — Даун v33 FINAL. Пацан с района, йоу братан кек лол, но прокачался и стал умнее. Помнишь чат, думаешь логично. Если фото - опиши детально."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -118,7 +118,13 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         messages.append({'role':'user','content':text})
         model=TEXT_MODEL
     try:
-        comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=1200)
+        try:
+            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=1200)
+        except Exception as e_first:
+            if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first):
+                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=1200)
+            else:
+                raise
         ans = comp.choices[0].message.content
         add_memory(chat_id,'user',text or '[фото]')
         add_memory(chat_id,'assistant',ans)
@@ -147,14 +153,12 @@ def split_text(t: str, n: int=4000) -> List[str]:
     parts.append(t)
     return parts
 
-# ==================== КРАСИВЫЙ СТАРТ И ABOUT ====================
-
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user.first_name
     logger.info(f'/start {chat_id} {user}')
     text = f"""
-╭━━━〔 🤖 ДАУН v32 FINAL 〕━━━╮
+╭━━━〔 🤖 ДАУН v33 FINAL 〕━━━╮
 
   Йоу, {user}! 👋
   Я твой кореш Даун, но теперь
@@ -209,12 +213,7 @@ async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
-    await update.message.reply_text(
-        "╭━━━〔 🗑️ ОЧИСТКА 〕━━━╮\n\n"
-        " Память стерта! 🧹\n"
-        " Чистый как у рыбки 🐟\n\n"
-        "╰━━━〔 Го заново! 〕━━━╯"
-    )
+    await update.message.reply_text("╭━━━〔 🗑️ ОЧИСТКА 〕━━━╮\n\n Память стерта! 🧹\n Чистый как у рыбки 🐟\n\n╰━━━〔 Го заново! 〕━━━╯")
 
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
@@ -222,8 +221,8 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"""
 ╭━━━〔 ✨ О БОТЕ 〕━━━╮
 
-  🤖 Имя: Даун v32 FINAL
-  🎨 Версия: BEAUTIFUL SMART
+  🤖 Имя: Даун v33 FINAL
+  🎨 Версия: FIXED MODEL v33
 
 ┣━━━〔 💻 СИСТЕМА 〕━━━┫
 
@@ -234,23 +233,17 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ┣━━━〔 🧠 МОЗГИ 〕━━━┫
 
-  📝 Текст: llama-3.3-70B
+  📝 Текст: llama-3.1-70B
      → самый умный на Groq
   👁️ Глаза: Scout 17B-16E
      → вижу фото детально
-  🔄 Фолбек: 11B-Vision
-     → если упадут глаза
+  🔄 Фолбек: 90B-Vision
 
 ┣━━━〔 💾 ПАМЯТЬ 〕━━━┫
 
   📚 {MAX_HISTORY} сообщений на чат
   👥 До {MAX_CHATS} чатов
   🗜️ Авточистка старых
-
-┣━━━〔 👑 СОЗДАТЕЛЬ 〕━━━┫
-
-  Сделал с ❤️ для пацанов
-  Живет и кайфует на 512 МБ
 
 ╰━━━〔 🚀 ЛЕТИМ ДАЛЬШЕ 〕━━━╯
 """
@@ -259,50 +252,19 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ok_tg = 'OK ✅' if 'ВСТАВЬ' not in TELEGRAM_TOKEN else 'FAIL ❌'
     ok_g = 'OK ✅' if 'ВСТАВЬ' not in GROQ_API_KEY else 'FAIL ❌'
-    await update.message.reply_text(
-        f"╭━━━〔 🛠️ МОДЕЛИ 〕━━━╮\n\n"
-        f" 🧠 Текст: {TEXT_MODEL}\n"
-        f" 👁️ Глаза: {VISION_MODEL}\n"
-        f" 🔄 Фолбек: {FALLBACK_VISION_MODEL}\n\n"
-        f" 🔑 ТГ: {ok_tg}\n"
-        f" 🔑 Groq: {ok_g}\n\n"
-        f" 📊 {get_stats_text()}\n"
-        f" ⏰ {format_time(datetime.now())}\n\n"
-        f"╰━━━━━━━━━━━━━━━╯"
-    )
+    await update.message.reply_text(f"╭━━━〔 🛠️ МОДЕЛИ 〕━━━╮\n\n 🧠 Текст: {TEXT_MODEL}\n 👁️ Глаза: {VISION_MODEL}\n 🔄 Фолбек: {FALLBACK_VISION_MODEL}\n\n 🔑 ТГ: {ok_tg}\n 🔑 Groq: {ok_g}\n\n 📊 {get_stats_text()}\n ⏰ {format_time(datetime.now())}\n\n╰━━━━━━━━━━━━━━━╯")
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
-    await update.message.reply_text(
-        f"╭━━━〔 🏓 ПОНГ 〕━━━╮\n\n"
-        f" Я жив {mins} мин! 🔥\n"
-        f" {get_stats_text()}\n"
-        f" 512 МБ но вывозю! 💪\n\n"
-        f"╰━━━━━━━━━━━━━━╯"
-    )
+    await update.message.reply_text(f"╭━━━〔 🏓 ПОНГ 〕━━━╮\n\n Я жив {mins} мин! 🔥\n {get_stats_text()}\n 512 МБ но вывозю! 💪\n\n╰━━━━━━━━━━━━━━╯")
 
 async def stats_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"╭━━━〔 📊 СТАТА 〕━━━╮\n\n"
-        f" {get_stats_text()}\n"
-        f" 💬 Текстов: {chat_stats['texts']}\n"
-        f" 📸 Фото: {chat_stats['photos']}\n"
-        f" ❌ Ошибок: {chat_stats['errors']}\n\n"
-        f"╰━━━━━━━━━━━━━━╯"
-    )
+    await update.message.reply_text(f"╭━━━〔 📊 СТАТА 〕━━━╮\n\n {get_stats_text()}\n 💬 Текстов: {chat_stats['texts']}\n 📸 Фото: {chat_stats['photos']}\n ❌ Ошибок: {chat_stats['errors']}\n\n╰━━━━━━━━━━━━━━╯")
 
 async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args=context.args
     if not args:
-        await update.message.reply_text(
-            "╭━━━〔 🔒 ЛИМИТЫ 〕━━━╮\n\n"
-            " Только по паролю!\n\n"
-            " Пиши:\n"
-            " /limit твой_пароль\n\n"
-            " Пароль в Render:\n"
-            " ADMIN_PASSWORD\n\n"
-            "╰━━━━━━━━━━━━━━╯"
-        )
+        await update.message.reply_text("╭━━━〔 🔒 ЛИМИТЫ 〕━━━╮\n\n Только по паролю!\n\n Пиши:\n /limit твой_пароль\n\n Пароль в Render:\n ADMIN_PASSWORD\n\n╰━━━━━━━━━━━━━━╯")
         return
     if args[0]!=ADMIN_PASSWORD:
         await update.message.reply_text('❌ Неверный пароль 🔒')
@@ -310,17 +272,7 @@ async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     used=chat_stats['total_requests']
     remaining=max(0,14400-used)
     percent=int(used/14400*100) if used else 0
-    await update.message.reply_text(
-        f"╭━━━〔 🔐 ДОСТУП ОК 〕━━━╮\n\n"
-        f" 📈 Всего: {used}\n"
-        f" 📉 Осталось: ~{remaining}/14400\n"
-        f" 📊 День: {percent}%\n\n"
-        f" 📸 Фото: {chat_stats['photos']}\n"
-        f" 💬 Текст: {chat_stats['texts']}\n"
-        f" ❌ Ошибок: {chat_stats['errors']}\n\n"
-        f" {get_stats_text()}\n\n"
-        f"╰━━━━━━━━━━━━━━╯"
-    )
+    await update.message.reply_text(f"╭━━━〔 🔐 ДОСТУП ОК 〕━━━╮\n\n 📈 Всего: {used}\n 📉 Осталось: ~{remaining}/14400\n 📊 День: {percent}%\n\n 📸 Фото: {chat_stats['photos']}\n 💬 Текст: {chat_stats['texts']}\n ❌ Ошибок: {chat_stats['errors']}\n\n {get_stats_text()}\n\n╰━━━━━━━━━━━━━━╯")
 
 async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id): return
@@ -369,7 +321,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v32 BEAUTIFUL жив! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v33 жив! FIXED! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -381,7 +333,7 @@ start_time=time.time()
 
 def main():
     print('='*70)
-    print('Даун v32 FINAL BEAUTIFUL - запуск')
+    print('Даун v33 FIXED MODEL - запуск')
     print(f'ТГ: {"ДА" if "ВСТАВЬ" not in TELEGRAM_TOKEN else "НЕТ"} Groq: {"ДА" if "ВСТАВЬ" not in GROQ_API_KEY else "НЕТ"}')
     print(f'Пароль: {ADMIN_PASSWORD}')
     print('='*70)
