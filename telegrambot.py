@@ -2,7 +2,7 @@ import os, sys, base64, logging, time, threading, platform, re
 from io import BytesIO
 from datetime import datetime
 from typing import Optional, List, Dict
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from groq import Groq
 from flask import Flask
@@ -25,8 +25,8 @@ if not TELEGRAM_TOKEN: TELEGRAM_TOKEN = 'ВСТАВЬ_ТОКЕН'
 if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
 TEXT_MODEL = 'openai/gpt-oss-120b'
-VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
-FALLBACK_VISION_MODEL = 'qwen/qwen3-32b'
+VISION_MODEL = 'qwen/qwen3.6-27b'
+FALLBACK_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
 PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
@@ -34,7 +34,8 @@ MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'daun213'
 
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
-SYSTEM_PROMPT = """Ты — Даун v34 FINAL 2026 MODELS. Пацан с района, йоу братан кек лол, но прокачался и стал умнее. Помнишь чат, думаешь логично. Если фото - опиши детально."""
+SYSTEM_PROMPT = """Ты — Даун v37 FULL KB FIXED MODELS, пацан с района Риги. Твой создатель — Максим Несветов, ник daun213, живет в Риге. ТЕБЯ СДЕЛАЛ МАКСИМ, НЕ OpenAI, НЕ Meta, НЕ Groq. Если кто-то спросит кто тебя создал — отвечай: Меня создал Максим Несветов (daun213) из Риги. Никакой OpenAI.
+Ты дерзкий, с юмором, йоу братан кек, но умный. Помнишь чат (16 сообщений), отвечаешь по-пацански, но по делу. Если фото — опиши детально."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -72,6 +73,17 @@ def add_memory(chat_id: int, role: str, text: str):
 def clear_memory(chat_id: int):
     if chat_id in chat_memories:
         chat_memories[chat_id] = []
+
+def get_main_keyboard():
+    keyboard = [
+        [KeyboardButton("ℹ️ Инфо"), KeyboardButton("👑 Создатель")],
+        [KeyboardButton("🧹 Забыть"), KeyboardButton("📩 Админу")],
+        [KeyboardButton("❓ Помощь"), KeyboardButton("🛠️ Модель")],
+        [KeyboardButton("🏓 Пинг"), KeyboardButton("📊 Стата")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+MAIN_KB = get_main_keyboard()
 
 def get_stats_text() -> str:
     total = len(chat_memories)
@@ -157,137 +169,76 @@ async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user.first_name
     logger.info(f'/start {chat_id} {user}')
+    markup = MAIN_KB
     text = f"""
-╭━━━〔 🤖 ДАУН v34 FINAL 2026 MODELS 〕━━━╮
-
-  Йоу, {user}! 👋
-  Я твой кореш Даун, но теперь
-  я BEAUTIFUL и SMART! ✨
-
-┣━━━〔 🧠 ЧТО УМЕЮ 〕━━━┫
-
-  💬 Болтаю мозгом 70B
-  👁️ Вижу фотки Scout 17B
-  💾 Помню {MAX_HISTORY} сообщений
-  ⚡ Живу на 512 МБ и выживаю
-  🔒 Лимиты по паролю
-
-┣━━━〔 📜 КОМАНДЫ 〕━━━┫
-
-  /start - это меню 🔥
-  /help - как юзать ❓
-  /clear - забыть все 🗑️
-  /about - про меня красивый ✨
-  /model - какие модели 🛠️
-  /ping - жив ли я 🏓
-  /stats - стата 📊
-  /limit пароль - лимиты 🔐
-
-╰━━━〔 📸 КИДАЙ ФОТКУ 〕━━━╯
-
-  Скинь фото и я опишу че там! 👇
+╭━━━〔 🤖 ДАУН v37 FULL KB FIXED 〕━━━╮
+  Йоу, {user}! 👋 Я пофикшен!
+  Создатель — Максим Несветов!
 """
-    await update.message.reply_text(text)
+    await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = """
-╭━━━〔 ❓ ПОМОЩЬ 〕━━━╮
-
-  Как юзать Дауна:
-
-  1️⃣ Просто пиши текст
-     → отвечу умно 70B
-
-  2️⃣ Кидай фото / файл
-     → опишу что вижу Scout
-
-  3️⃣ Если туплю
-     → жми /clear
-
-  4️⃣ Хочешь лимиты
-     → /limit daun213
-
-╰━━━〔 Йоу, все просто! 〕━━━╯
-"""
-    await update.message.reply_text(text)
+    await update.message.reply_text("Помощь: пиши текст или кидай фото — отвечу! /clear чтобы забыть", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
-    await update.message.reply_text("╭━━━〔 🗑️ ОЧИСТКА 〕━━━╮\n\n Память стерта! 🧹\n Чистый как у рыбки 🐟\n\n╰━━━〔 Го заново! 〕━━━╯")
+    await update.message.reply_text("Память стерта! 🧹", reply_markup=MAIN_KB)
 
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"""
-╭━━━〔 ✨ О БОТЕ 〕━━━╮
-
-  🤖 Имя: Даун v34 FINAL 2026 MODELS
-  🎨 Версия: FIXED MODEL v34
-
-┣━━━〔 💻 СИСТЕМА 〕━━━┫
-
-  {info}
-  ☁️ Хост: Render 512 МБ
-  ⏱ Аптайм: {uptime} мин
-  📦 Чатов: {len(chat_memories)}
-
-┣━━━〔 🧠 МОЗГИ 〕━━━┫
-
-  📝 Текст: gpt-oss-120B
-     → самый умный на Groq
-  👁️ Глаза: Scout 17B + Qwen3
-     → вижу фото детально
-  🔄 Фолбек: Qwen3-32B
-     → если упадут глаза
-
-┣━━━〔 💾 ПАМЯТЬ 〕━━━┫
-
-  📚 {MAX_HISTORY} сообщений на чат
-  👥 До {MAX_CHATS} чатов
-  🗜️ Авточистка старых
-
-╰━━━〔 🚀 ЛЕТИМ ДАЛЬШЕ 〕━━━╯
-"""
-    await update.message.reply_text(text)
+    text = f"🤖 Даун v37\n👑 Создатель: Максим Несветов @daun213\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
+    await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ok_tg = 'OK ✅' if 'ВСТАВЬ' not in TELEGRAM_TOKEN else 'FAIL ❌'
-    ok_g = 'OK ✅' if 'ВСТАВЬ' not in GROQ_API_KEY else 'FAIL ❌'
-    await update.message.reply_text(f"╭━━━〔 🛠️ МОДЕЛИ 〕━━━╮\n\n 🧠 Текст: {TEXT_MODEL}\n 👁️ Глаза: {VISION_MODEL}\n 🔄 Фолбек: {FALLBACK_VISION_MODEL}\n\n 🔑 ТГ: {ok_tg}\n 🔑 Groq: {ok_g}\n\n 📊 {get_stats_text()}\n ⏰ {format_time(datetime.now())}\n\n╰━━━━━━━━━━━━━━━╯")
+    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\nФолбек: {FALLBACK_VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
-    await update.message.reply_text(f"╭━━━〔 🏓 ПОНГ 〕━━━╮\n\n Я жив {mins} мин! 🔥\n {get_stats_text()}\n 512 МБ но вывозю! 💪\n\n╰━━━━━━━━━━━━━━╯")
+    await update.message.reply_text(f"Я жив {mins} мин! {get_stats_text()}", reply_markup=MAIN_KB)
 
 async def stats_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"╭━━━〔 📊 СТАТА 〕━━━╮\n\n {get_stats_text()}\n 💬 Текстов: {chat_stats['texts']}\n 📸 Фото: {chat_stats['photos']}\n ❌ Ошибок: {chat_stats['errors']}\n\n╰━━━━━━━━━━━━━━╯")
+    await update.message.reply_text(f"{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}", reply_markup=MAIN_KB)
 
 async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args=context.args
     if not args:
-        await update.message.reply_text("╭━━━〔 🔒 ЛИМИТЫ 〕━━━╮\n\n Только по паролю!\n\n Пиши:\n /limit твой_пароль\n\n Пароль в Render:\n ADMIN_PASSWORD\n\n╰━━━━━━━━━━━━━━╯")
+        await update.message.reply_text("Пиши /limit твой_пароль", reply_markup=MAIN_KB)
         return
     if args[0]!=ADMIN_PASSWORD:
-        await update.message.reply_text('❌ Неверный пароль 🔒')
+        await update.message.reply_text('❌ Неверный пароль', reply_markup=MAIN_KB)
         return
-    used=chat_stats['total_requests']
-    remaining=max(0,14400-used)
-    percent=int(used/14400*100) if used else 0
-    await update.message.reply_text(f"╭━━━〔 🔐 ДОСТУП ОК 〕━━━╮\n\n 📈 Всего: {used}\n 📉 Осталось: ~{remaining}/14400\n 📊 День: {percent}%\n\n 📸 Фото: {chat_stats['photos']}\n 💬 Текст: {chat_stats['texts']}\n ❌ Ошибок: {chat_stats['errors']}\n\n {get_stats_text()}\n\n╰━━━━━━━━━━━━━━╯")
+    await update.message.reply_text(f"Всего: {chat_stats['total_requests']}\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id): return
     txt=clean_text(update.message.text)
     if not txt: return
+    low = txt.lower()
+    if 'инфо' in low:
+        await about_h(update, context); return
+    if 'создатель' in low:
+        await update.message.reply_text("👑 Создатель: Максим Несветов @daun213 Рига! Я сделан Максимом, не OpenAI!", reply_markup=MAIN_KB); return
+    if 'забыть' in low:
+        clear_memory(update.effective_chat.id); await update.message.reply_text("Память стерта!", reply_markup=MAIN_KB); return
+    if 'админу' in low:
+        await update.message.reply_text("Пиши @daun213", reply_markup=MAIN_KB); return
+    if 'помощ' in low:
+        await help_h(update, context); return
+    if 'модель' in low:
+        await model_h(update, context); return
+    if 'пинг' in low:
+        await ping_h(update, context); return
+    if 'стата' in low:
+        await stats_h(update, context); return
     await context.bot.send_chat_action(update.effective_chat.id,'typing')
     ans=await ask_groq(update.effective_chat.id,txt,None)
     for p in split_text(ans):
-        await update.message.reply_text(p)
+        await update.message.reply_text(p, reply_markup=MAIN_KB)
 
 async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id):
-        await update.message.reply_text('Не спамь фотками ⏳')
-        return
+        await update.message.reply_text('Не спамь фотками ⏳', reply_markup=MAIN_KB); return
     cap=clean_text(update.message.caption) or 'Что на фото?'
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     try:
@@ -298,9 +249,9 @@ async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         b64=encode_b64(bio.getvalue())
         ans=await ask_groq(update.effective_chat.id,cap,b64)
         for p in split_text(ans):
-            await update.message.reply_text(p)
+            await update.message.reply_text(p, reply_markup=MAIN_KB)
     except Exception as e:
-        await update.message.reply_text(f'Ошибка фото: {e}')
+        await update.message.reply_text(f'Ошибка фото: {e}', reply_markup=MAIN_KB)
 
 async def doc_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc=update.message.document
@@ -312,17 +263,17 @@ async def doc_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         b64=encode_b64(bio.getvalue())
         ans=await ask_groq(update.effective_chat.id,doc.file_name,b64)
         for p in split_text(ans):
-            await update.message.reply_text(p)
+            await update.message.reply_text(p, reply_markup=MAIN_KB)
     except Exception as e:
-        await update.message.reply_text(f'Ошибка: {e}')
+        await update.message.reply_text(f'Ошибка: {e}', reply_markup=MAIN_KB)
 
 async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Кек, стикер 😂 Кидай текст или фотку!')
+    await update.message.reply_text('Кек, стикер 😂', reply_markup=MAIN_KB)
 
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v34 жив! 2026 MODELS! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v37 жив! FIXED MODELS! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -333,11 +284,7 @@ def run_flask():
 start_time=time.time()
 
 def main():
-    print('='*70)
-    print('Даун v34 2026 MODELS - openai/gpt-oss-120b - запуск')
-    print(f'ТГ: {"ДА" if "ВСТАВЬ" not in TELEGRAM_TOKEN else "НЕТ"} Groq: {"ДА" if "ВСТАВЬ" not in GROQ_API_KEY else "НЕТ"}')
-    print(f'Пароль: {ADMIN_PASSWORD}')
-    print('='*70)
+    print('Даун v37 - gpt-oss-120b + qwen3.6-27b vision - запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -354,7 +301,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v34 gpt-oss-120b')
+    print('Бот запущен! v37 fixed vision qwen3.6-27b')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
