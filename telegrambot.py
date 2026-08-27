@@ -24,17 +24,17 @@ GROQ_API_KEY = get_env_smart('GROQ_API_KEY','GROQ','GROQ_KEY')
 if not TELEGRAM_TOKEN: TELEGRAM_TOKEN = 'ВСТАВЬ_ТОКЕН'
 if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
-TEXT_MODEL = 'llama-3.1-70b-versatile'
+TEXT_MODEL = 'openai/gpt-oss-120b'
 VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
-FALLBACK_VISION_MODEL = 'llama-3.2-90b-vision-preview'
+FALLBACK_VISION_MODEL = 'qwen/qwen3-32b'
 PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
 MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'daun213'
 
-TEXT_MODEL_FALLBACK = 'llama-3.1-8b-instant'
-SYSTEM_PROMPT = """Ты — Даун v33 FINAL. Пацан с района, йоу братан кек лол, но прокачался и стал умнее. Помнишь чат, думаешь логично. Если фото - опиши детально."""
+TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
+SYSTEM_PROMPT = """Ты — Даун v34 FINAL 2026 MODELS. Пацан с района, йоу братан кек лол, но прокачался и стал умнее. Помнишь чат, думаешь логично. Если фото - опиши детально."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -121,7 +121,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         try:
             comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=1200)
         except Exception as e_first:
-            if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first):
+            if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first) or 'decommissioned' in str(e_first):
                 comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=1200)
             else:
                 raise
@@ -158,7 +158,7 @@ async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
     logger.info(f'/start {chat_id} {user}')
     text = f"""
-╭━━━〔 🤖 ДАУН v33 FINAL 〕━━━╮
+╭━━━〔 🤖 ДАУН v34 FINAL 2026 MODELS 〕━━━╮
 
   Йоу, {user}! 👋
   Я твой кореш Даун, но теперь
@@ -221,8 +221,8 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"""
 ╭━━━〔 ✨ О БОТЕ 〕━━━╮
 
-  🤖 Имя: Даун v33 FINAL
-  🎨 Версия: FIXED MODEL v33
+  🤖 Имя: Даун v34 FINAL 2026 MODELS
+  🎨 Версия: FIXED MODEL v34
 
 ┣━━━〔 💻 СИСТЕМА 〕━━━┫
 
@@ -233,11 +233,12 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ┣━━━〔 🧠 МОЗГИ 〕━━━┫
 
-  📝 Текст: llama-3.1-70B
+  📝 Текст: gpt-oss-120B
      → самый умный на Groq
-  👁️ Глаза: Scout 17B-16E
+  👁️ Глаза: Scout 17B + Qwen3
      → вижу фото детально
-  🔄 Фолбек: 90B-Vision
+  🔄 Фолбек: Qwen3-32B
+     → если упадут глаза
 
 ┣━━━〔 💾 ПАМЯТЬ 〕━━━┫
 
@@ -321,7 +322,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v33 жив! FIXED! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v34 жив! 2026 MODELS! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -333,7 +334,7 @@ start_time=time.time()
 
 def main():
     print('='*70)
-    print('Даун v33 FIXED MODEL - запуск')
+    print('Даун v34 2026 MODELS - openai/gpt-oss-120b - запуск')
     print(f'ТГ: {"ДА" if "ВСТАВЬ" not in TELEGRAM_TOKEN else "НЕТ"} Groq: {"ДА" if "ВСТАВЬ" not in GROQ_API_KEY else "НЕТ"}')
     print(f'Пароль: {ADMIN_PASSWORD}')
     print('='*70)
@@ -353,7 +354,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! FIXED v32')
+    print('Бот запущен! v34 gpt-oss-120b')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
