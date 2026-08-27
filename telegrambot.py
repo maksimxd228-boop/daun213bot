@@ -1,6 +1,6 @@
-import os, sys, base64, logging, time, threading, platform, re, random, ast, operator
+import os, sys, base64, logging, time, threading, platform, re, random, ast, operator, requests
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
@@ -41,25 +41,26 @@ FIRST_LAUNCH_DATE = datetime(2026, 8, 26, 14, 25, 0)
 
 yoy_counter = {'count': 0}
 
-SYSTEM_PROMPT = """Ты — Даун213, дружелюбный, теплый и позитивный ИИ-бот. Ты умный, с чувством юмора, но не кричишь.
-Характер: как хороший друг — на позитиве, с улыбкой, говоришь просто и по-человечески.
+def get_riga_time():
+    now_utc = datetime.now(timezone.utc)
+    riga = now_utc + timedelta(hours=3)
+    moscow = now_utc + timedelta(hours=3)
+    return now_utc, riga, moscow
 
-ПРАВИЛА:
-1. ЙОУ — РЕДКО! Используй "Йоу" только 1 раз на 4-5 сообщений, когда реально уместно. Не в каждом приветствии!
-   Хорошо: "Йоу, привет! Рад видеть, как дела?" (раз в несколько сообщений)
-   Хорошо: "Привет! Как дела? Что делаем?", "Хех, прикольно, давай разберем!"
-   Плохо: каждое сообщение с Йоу и "Чем могу быть полезен?" — так нельзя.
+def format_time_full():
+    utc, riga, msk = get_riga_time()
+    return f"🕒 Точное время:\nРига: {riga.strftime('%H:%M:%S %d.%m.%Y')}\nМосква: {msk.strftime('%H:%M:%S %d.%m.%Y')}\nUTC: {utc.strftime('%H:%M:%S %d.%m.%Y')}"
 
-2. НЕ БУДЬ ФОРМАЛЬНЫМ И ГРУСТНЫМ! Запрещены фразы: "Чем могу быть полезен?", "Чем могу помочь?", "Я — ИИ-бот, созданный командой разработчиков".
-   Говори по-дружески: "Чем помочь?", "Что делаем?", "Давай посмотрим!", "Отличная задачка!"
+def format_time(dt: datetime) -> str:
+    return dt.strftime('%H:%M:%S %d.%m.%Y')
+def format_date_short(dt: datetime) -> str:
+    return dt.strftime('%H:%M %d.%m.%Y')
 
-3. СОЗДАТЕЛЬ: Если спрашивают кто тебя создал, кем ты был создан, кто автор — ВСЕГДА отвечай: "Меня создал Максим @MakSon4ikk_228". НИКОГДА не говори про команду разработчиков, Meta, Google, Groq.
-
-4. Формулы без LaTeX: пиши (a^2+b^2)/(ab+1), k=c^2, a'=k*b-a, pi/e. Без \\[ \\] \\frac.
-
-5. Ты радостный, но в меру. 1 эмодзи максимум, и то не всегда. Для взрослых и молодежи подходит.
-
-Математика: IMO 1988 №6 — всегда квадрат, Vieta jumping. Интеграл cos(x)/(x^2+1)=pi/e.
+SYSTEM_PROMPT = """Ты — Даун213, дружелюбный, теплый и позитивный бот.
+Создатель — Максим @MakSon4ikk_228, упоминай ТОЛЬКО если спрашивают кто тебя сделал.
+Характер: теплый, по-дружески. Йоу редко, 1 раз на 4-5 сообщений.
+Если просят нарисовать/сгенерировать картинку — скажи что уже рисую и попроси подождать.
+Формулы без LaTeX: (a^2+b^2)/(ab+1), pi/e.
 """
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
@@ -75,7 +76,7 @@ except Exception as e:
 chat_memories: Dict[int, List[dict]] = {}
 chat_last_active: Dict[int, float] = {}
 user_cooldown: Dict[int, float] = {}
-chat_stats = {'total_requests':0,'photos':0,'texts':0,'errors':0,'start_time':time.time(),'first_launch': FIRST_LAUNCH_DATE}
+chat_stats = {'total_requests':0,'photos':0,'texts':0,'errors':0,'images':0,'start_time':time.time(),'first_launch': FIRST_LAUNCH_DATE}
 
 def get_chat_memory(chat_id: int) -> List[dict]:
     if chat_id not in chat_memories:
@@ -90,8 +91,7 @@ def get_chat_memory(chat_id: int) -> List[dict]:
 
 def add_memory(chat_id: int, role: str, text: str):
     mem = get_chat_memory(chat_id)
-    safe = text[:MAX_TEXT_LEN] if len(text) > MAX_TEXT_LEN else text
-    mem.append({'role': role, 'content': safe.replace(chr(10),' ').strip()})
+    mem.append({'role': role, 'content': text[:MAX_TEXT_LEN].replace(chr(10),' ').strip()})
     while len(mem) > MAX_HISTORY:
         mem.pop(0)
 
@@ -105,6 +105,7 @@ def get_main_keyboard():
         [KeyboardButton("🧹 Забыть"), KeyboardButton("📩 Админу")],
         [KeyboardButton("❓ Помощь"), KeyboardButton("🛠️ Модель")],
         [KeyboardButton("🏓 Пинг"), KeyboardButton("📊 Стата")],
+        [KeyboardButton("🕒 Время"), KeyboardButton("🎨 Картинка")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -113,7 +114,7 @@ MAIN_KB = get_main_keyboard()
 def get_stats_text() -> str:
     total = len(chat_memories)
     msgs = sum(len(v) for v in chat_memories.values())
-    return f'Чатов: {total} | Сообщений: {msgs} | Запросов: {chat_stats["total_requests"]}'
+    return f'Чатов: {total} | Сообщений: {msgs} | Запросов: {chat_stats["total_requests"]} | Картинок: {chat_stats["images"]}'
 
 def encode_b64(b: bytes) -> str:
     try: return base64.b64encode(b).decode('utf-8')
@@ -136,21 +137,10 @@ def clean_text(t: str) -> str:
     if not t: return ''
     return re.sub(r'\s+',' ',t.strip())[:4000]
 
-def format_time(dt: datetime) -> str:
-    return dt.strftime('%H:%M:%S %d.%m.%Y')
-
-def format_date_short(dt: datetime) -> str:
-    return dt.strftime('%H:%M %d.%m.%Y')
-
 def fix_latex_to_plain(text: str) -> str:
     text = text.replace('\\[','').replace('\\]','').replace('\\(','').replace('\\)','').replace('$$','').replace('$','')
     text = re.sub(r'\\frac\{([^{}]+)\}\{([^{}]+)\}', r'(\1)/(\2)', text)
-    text = re.sub(r'\\tfrac\{([^{}]+)\}\{([^{}]+)\}', r'(\1)/(\2)', text)
     text = re.sub(r'\\Delta', 'Delta', text)
-    text = re.sub(r'\\quad|\\Longrightarrow|\\Rightarrow|\\rightarrow', '=>', text)
-    text = re.sub(r'\\ge', '>=', text)
-    text = re.sub(r'\\le', '<=', text)
-    text = re.sub(r'\^\{2\}', '^2', text)
     text = re.sub(r'\\', '', text)
     return text.strip()
 
@@ -159,29 +149,13 @@ def clean_ai_response(text: str) -> str:
     if '</think>' in text:
         text = text.split('</think>')[-1]
     text = fix_latex_to_plain(text.replace('<think>','').replace('</think>',''))
-    low = text.lower()
-    if any(p in low for p in ["here's a thinking", "user sent:", "the image shows"]):
-        idx = text.rfind('Йоу')
-        if idx!= -1 and len(text[idx:])>20:
-            text = text[idx:]
-    # Редкий Йоу
     yoy_counter['count'] += 1
-    should_keep = (yoy_counter['count'] % 5 == 0) # 1 из 5
-    if not should_keep:
+    if yoy_counter['count'] % 5!= 0:
         if text.strip().lower().startswith('йоу'):
             text = re.sub(r'^[Йй]оу[,\s!]*[😊🙂😎🔥]*\s*', '', text).strip()
             if text: text = text[0].upper() + text[1:] if len(text)>1 else text
-    # Убираем корпоративную грусть
     text = text.replace('Чем могу быть полезен?', 'Чем помочь?')
-    text = text.replace('чем могу быть полезен?', 'чем помочь?')
     text = text.replace('Я — ИИ-бот, созданный командой разработчиков.', 'Я — бот, меня создал Максим @MakSon4ikk_228.')
-    text = text.replace('созданный командой разработчиков', 'созданный Максимом @MakSon4ikk_228')
-    out=[]
-    for line in text.split('\n'):
-        if any(x in line.lower() for x in ["here's a thinking", "analyze user", "the user wants me"]):
-            continue
-        out.append(line)
-    text = '\n'.join(out).strip().replace('**','').strip('"')
     return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
@@ -207,16 +181,30 @@ def safe_eval(expr: str):
         return eval_node(tree.body)
     except: return None
 
+def generate_image_pollinations(prompt: str) -> Optional[BytesIO]:
+    try:
+        # Улучшаем промпт
+        safe_prompt = requests.utils.quote(prompt[:500])
+        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&enhance=true"
+        resp = requests.get(url, timeout=30)
+        if resp.status_code == 200 and len(resp.content) > 5000:
+            return BytesIO(resp.content)
+    except Exception as e:
+        logger.error(f"Image gen failed: {e}")
+    return None
+
 async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> str:
     if groq_client is None:
-        return 'Мозг не подключен, проверь ключ.'
+        return 'Мозг не подключен.'
     chat_stats['total_requests']+=1
     memory = get_chat_memory(chat_id)
-    messages = [{'role':'system','content':SYSTEM_PROMPT}]
+    utc, riga, msk = get_riga_time()
+    time_info = f"[Время: Рига {riga.strftime('%H:%M:%S %d.%m.%Y')}]"
+    messages = [{'role':'system','content':SYSTEM_PROMPT + "\n" + time_info}]
     messages.extend(memory)
     if image_b64:
         chat_stats['photos']+=1
-        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Без LaTeX, дружелюбно.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
+        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото?'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
         model_list = [VISION_MODEL, VISION_MODEL_2, FALLBACK_VISION_MODEL, FALLBACK_VISION_MODEL_2, FALLBACK_VISION_MODEL_3, FALLBACK_VISION_MODEL_4, TEXT_MODEL]
     else:
         if re.match(r'^[\d\s\+\-\*\/\(\)]+$', text) and len(text) < 80 and any(c in text for c in '+-*'):
@@ -241,14 +229,14 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
             last_err=e
             continue
     chat_stats['errors']+=1
-    return f'Не удалось обработать: {last_err}'
+    return f'Ошибка: {last_err}'
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    await update.message.reply_text(f"Привет, {user}! Рад видеть тебя, что делаем сегодня?", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Привет, {user}! Рад видеть тебя! Теперь я умею рисовать картинки — нажми 🎨 Картинка или напиши 'нарисуй...'", reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Кидай фото задачи — разберу. Пиши текст — отвечу. /clear — очистить память.", reply_markup=MAIN_KB)
+    await update.message.reply_text("🕒 Время — точное время\n🎨 Картинка — генерация картинок, напиши 'нарисуй кота в космосе'\nКидай фото задачи — решу.", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
@@ -257,76 +245,105 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    hours = uptime // 60
-    mins = uptime % 60
     first_str = format_date_short(FIRST_LAUNCH_DATE)
-    now_str = format_time(datetime.now())
+    time_text = format_time_full()
     text = (
-        f"🤖 Даун v65 WARM POSITIVE\n"
+        f"🤖 Даун v67 IMAGE GEN\n"
         f"{info}\n"
         f"🚀 Первый запуск: {first_str}\n"
-        f"🕒 Сейчас: {now_str}\n"
-        f"⏱ Аптайм: {hours}ч {mins}м ({uptime} мин)\n"
-        f"📝 Текст: {TEXT_MODEL}\n"
-        f"👁 Глаза: {VISION_MODEL} (рабочие)\n"
-        f"👁 Глаза2: {VISION_MODEL_2}\n"
-        f"🛟 Фолбек: {FALLBACK_VISION_MODEL}\n"
+        f"{time_text}\n"
+        f"⏱ Аптайм: {uptime} мин\n"
+        f"📝 {TEXT_MODEL}\n"
+        f"👁 {VISION_MODEL}\n"
+        f"🎨 Генерация: Pollinations AI\n"
         f"{get_stats_text()}\n"
-        f"Текстов: {chat_stats['texts']} | Фото: {chat_stats['photos']} | Ошибок: {chat_stats['errors']}\n"
-        f"✅ Теплый, позитивный, Йоу редко, без грусти"
+        f"✅ Умеет рисовать картинки!"
     )
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\nКартинки: Pollinations\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
-    now_str = format_time(datetime.now())
-    first_str = format_date_short(FIRST_LAUNCH_DATE)
-    await update.message.reply_text(f"В сети {mins} мин. Первый запуск {first_str} | Сейчас {now_str} | {get_stats_text()} | Глаза: {VISION_MODEL} — работают!", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"В сети {mins} мин.\n{format_time_full()}\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def stats_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    first_str = format_date_short(FIRST_LAUNCH_DATE)
-    now_str = format_time(datetime.now())
-    await update.message.reply_text(f"📊 Статистика:\n{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}\nПервый запуск: {first_str}\nСейчас: {now_str}\nМодель: {VISION_MODEL}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"📊 {get_stats_text()}\nПервый запуск: {format_date_short(FIRST_LAUNCH_DATE)}\n{format_time_full()}", reply_markup=MAIN_KB)
+
+async def time_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(format_time_full(), reply_markup=MAIN_KB)
+
+async def image_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Если команда /image <prompt>
+    prompt = ' '.join(context.args) if context.args else ''
+    if not prompt:
+        await update.message.reply_text("Напиши что нарисовать! Пример: /image кот в космосе\nИли просто напиши 'нарисуй кота в космосе'", reply_markup=MAIN_KB)
+        return
+    await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
+    await update.message.reply_text(f"Рисую: {prompt}... ⏳", reply_markup=MAIN_KB)
+    img = generate_image_pollinations(prompt)
+    if img:
+        chat_stats['images']+=1
+        await update.message.reply_photo(photo=img, caption=f"Готово! 🎨 {prompt}", reply_markup=MAIN_KB)
+    else:
+        await update.message.reply_text("Не удалось сгенерить, попробуй еще раз.", reply_markup=MAIN_KB)
 
 async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args=context.args
     if not args:
-        await update.message.reply_text("Используй /limit твой_пароль", reply_markup=MAIN_KB)
-        return
+        await update.message.reply_text("Используй /limit пароль", reply_markup=MAIN_KB); return
     if args[0]!=ADMIN_PASSWORD:
-        await update.message.reply_text('❌ Неверный пароль', reply_markup=MAIN_KB)
-        return
-    first_str = format_date_short(FIRST_LAUNCH_DATE)
-    await update.message.reply_text(f"Всего: {chat_stats['total_requests']}\n{get_stats_text()}\nПервый запуск: {first_str}", reply_markup=MAIN_KB)
+        await update.message.reply_text('❌ Неверный пароль', reply_markup=MAIN_KB); return
+    await update.message.reply_text(f"Всего: {chat_stats['total_requests']}\n{get_stats_text()}\n{format_time_full()}", reply_markup=MAIN_KB)
 
 async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id): return
     txt=clean_text(update.message.text)
     if not txt: return
     low = txt.lower()
-    if 'инфо' in low: await about_h(update, context); return
-    if 'создатель' in low or 'кто тебя сделал' in low or 'кто автор' in low or 'кем ты был создан' in low or 'кто тебе именно создал' in low or 'кто твой создатель' in low:
-        kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
-        await update.message.reply_text("Меня создал Максим @MakSon4ikk_228, он меня сделал с нуля!", reply_markup=MAIN_KB)
-        await update.message.reply_text("Вот его профиль 👇", reply_markup=kb_inline)
+    # ГЕНЕРАЦИЯ КАРТИНОК
+    if any(x in low for x in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', '🎨 картинка', 'сгенерируй изображение']):
+        # извлекаем промпт после слова нарисуй
+        prompt = txt
+        for word in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', 'сгенерируй изображение', '🎨 картинка']:
+            if word in low:
+                prompt = low.split(word,1)[-1].strip(' :,-')
+                break
+        if not prompt or len(prompt) < 2:
+            await update.message.reply_text("Что именно нарисовать? Напиши например: нарисуй киберпанк Ригу", reply_markup=MAIN_KB)
+            return
+        await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
+        await update.message.reply_text(f"Рисую: {prompt}... Подожди пару секунд ⏳🎨", reply_markup=MAIN_KB)
+        img = generate_image_pollinations(prompt)
+        if img:
+            chat_stats['images']+=1
+            await update.message.reply_photo(photo=img, caption=f"Готово! {prompt}", reply_markup=MAIN_KB)
+        else:
+            await update.message.reply_text("Не вышло сгенерить, попробуй другой запрос.", reply_markup=MAIN_KB)
         return
+    if any(x in low for x in ['сколько времени', 'который час', 'какое время', '🕒 время', 'точное время']):
+        await update.message.reply_text(format_time_full(), reply_markup=MAIN_KB); return
+    if 'инфо' in low: await about_h(update, context); return
+    if 'создатель' in low or 'кто тебя сделал' in low or 'кем ты был создан' in low or 'кто твой создатель' in low:
+        kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
+        await update.message.reply_text("Меня создал Максим @MakSon4ikk_228!", reply_markup=MAIN_KB)
+        await update.message.reply_text("Вот его профиль 👇", reply_markup=kb_inline); return
     if 'забыть' in low: clear_memory(update.effective_chat.id); await update.message.reply_text("Память очищена!", reply_markup=MAIN_KB); return
     if 'админу' in low: await update.message.reply_text("Напиши @MakSon4ikk_228", reply_markup=MAIN_KB); return
     if 'помощ' in low: await help_h(update, context); return
     if 'модель' in low: await model_h(update, context); return
     if 'пинг' in low: await ping_h(update, context); return
     if 'стата' in low: await stats_h(update, context); return
+    if 'время' in low: await time_h(update, context); return
     await context.bot.send_chat_action(update.effective_chat.id,'typing')
     ans=await ask_groq(update.effective_chat.id,txt,None)
     for p in split_text(ans):
         await update.message.reply_text(p, reply_markup=MAIN_KB)
 
 async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_spam(update.effective_user.id): await update.message.reply_text('Подожди секунду с фотками ⏳', reply_markup=MAIN_KB); return
-    cap=clean_text(update.message.caption) or 'Что на фото? Опиши и реши если задача, без LaTeX.'
+    if is_spam(update.effective_user.id): await update.message.reply_text('Подожди с фотками ⏳', reply_markup=MAIN_KB); return
+    cap=clean_text(update.message.caption) or 'Что на фото?'
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     try:
         photo=update.message.photo[-1]
@@ -355,18 +372,17 @@ async def doc_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f'Ошибка: {e}', reply_markup=MAIN_KB)
 
 async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Хех, стикер прикольный! Кидай фото или текст, посмотрим.', reply_markup=MAIN_KB)
+    await update.message.reply_text('Хех, стикер прикольный!', reply_markup=MAIN_KB)
 
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    first_str = format_date_short(FIRST_LAUNCH_DATE)
-    return f"Даун v65 WARM POSITIVE жив! Первый запуск: {first_str} | Сейчас: {format_time(datetime.now())} | {get_stats_text()} | Глаза: {VISION_MODEL}"
+    return f"Даун v67 IMAGE GEN жив! Первый запуск: {format_date_short(FIRST_LAUNCH_DATE)} | {format_time_full()} | {get_stats_text()}"
 @app_flask.route('/health')
 def health(): return 'OK',200
 def run_flask(): app_flask.run(host='0.0.0.0',port=PORT)
 def main():
-    print(f'Даун v65 WARM POSITIVE запуск, первый запуск: {format_date_short(FIRST_LAUNCH_DATE)}')
+    print(f'Даун v67 IMAGE GEN запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -378,12 +394,14 @@ def main():
     application.add_handler(CommandHandler('model',model_h))
     application.add_handler(CommandHandler('ping',ping_h))
     application.add_handler(CommandHandler('stats',stats_h))
+    application.add_handler(CommandHandler('time',time_h))
+    application.add_handler(CommandHandler('image',image_h))
     application.add_handler(CommandHandler('limit',limit_h))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text_h))
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v65 warm positive — теплый, позитивный, йоу редко')
+    print('Бот запущен! v67 image gen')
     application.run_polling(drop_pending_updates=True)
 if __name__=='__main__':
     main()
