@@ -34,8 +34,8 @@ MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
 
-SYSTEM_PROMPT = """Ты — Даун213, бот пацана с района Риги. Твой создатель — Максим, ник MakSon4ikk_228, из Риги, Telegram @MakSon4ikk_228. Если спросят кто создатель — отвечай: Мой создатель — Максим, ник MakSon4ikk_228 из Риги (@MakSon4ikk_228).
-Ты дерзкий, с юмором, йоу братан кек, но умный и по делу. На обычные сообщения отвечай нормально. Если кинули ФОТО — отвечай КОРОТКО: 2-4 предложения, до 500 символов, без списков и пунктов, просто что видишь, на пацанском с приколом. Запрещено писать Check constraints, Final Check, One minor thing, Let's refine, Name/Persona, Creator rule и любой английский технический текст. Только финальный ответ."""
+SYSTEM_PROMPT = """Ты — Даун213, бот пацана с района Риги. Твой создатель — Максим, ник MakSon4ikk_228 из Риги, Telegram @MakSon4ikk_228. Если спросят кто создатель — отвечай: Мой создатель — Максим, ник MakSon4ikk_228 из Риги (@MakSon4ikk_228).
+Ты дерзкий, с юмором, йоу братан кек, но умный и по делу. На обычные сообщения отвечай нормально развернуто. Если кинули ФОТО — отвечай СРЕДНЕ: 3-5 предложений, до 700 символов, без списков и без пунктов, просто по-человечески что видишь, на пацанском с приколом. Запрещено писать Check constraints, Final Check, One minor thing, Let's refine, Name/Persona, Creator rule и любой английский технический текст. Только финальный ответ."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -125,15 +125,15 @@ def clean_ai_response(text: str) -> str:
         pos = text.rfind('Йоу')
     if pos!= -1:
         cand = text[pos:]
-        markers = ['Check constraints', 'Check Against', 'Final Check', 'One minor thing', "Let's refine", 'All good. Output', '**Name/Persona', '**Creator rule', '- Creator info', '- Chat memory', '- Style', 'Matches.', 'Not really relevant']
+        markers = ['Check constraints', 'Check Against', 'Final Check', 'One minor thing', "Let's refine", 'All good. Output', '**Name/Persona', '**Creator rule', '- Creator info', '- Chat memory']
         cut = len(cand)
-        low_cand = cand.lower()
+        low = cand.lower()
         for m in markers:
-            idx = low_cand.find(m.lower())
-            if idx > 15 and idx < cut:
+            idx = low.find(m.lower())
+            if idx > 20 and idx < cut:
                 cut = idx
         cand = cand[:cut].strip().strip('"').strip("'")
-        if len(cand) > 20:
+        if len(cand) > 30:
             text = cand
     out = []
     for line in text.split('\n'):
@@ -141,24 +141,24 @@ def clean_ai_response(text: str) -> str:
         if 'check constraints' in low: break
         if 'check against' in low: break
         if 'final check' in low: break
-        if 'one minor thing' in low: break
-        if "let's refine" in low: break
+        if 'one minor thing' in low: continue
+        if "let's refine" in low: continue
         if 'creator info not needed' in low: break
-        if 'chat memory: not really relevant' in low: break
+        if 'chat memory: not really relevant' in low: continue
         if 'output matches draft' in low: continue
         if '**name/persona' in low: continue
         if '**creator rule' in low: continue
         if 'not triggered' in low and len(line) < 80: continue
         out.append(line)
     text = '\n'.join(out).strip().strip('"')
-    if len(text) > 650:
+    if len(text) > 950:
         cur = ""
-        sent_count = 0
+        sent = 0
         for ch in text:
             cur += ch
-            if ch in '.!?' and len(cur) > 20:
-                sent_count += 1
-                if sent_count >= 4:
+            if ch in '.!?' and len(cur) > 25:
+                sent += 1
+                if sent >= 5:
                     break
         if cur:
             text = cur.strip()
@@ -192,10 +192,10 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         model=TEXT_MODEL
     try:
         try:
-            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=600)
+            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=800)
         except Exception as e_first:
             if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first) or 'decommissioned' in str(e_first):
-                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=600)
+                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=800)
             else:
                 raise
         ans_raw = comp.choices[0].message.content
@@ -207,7 +207,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         chat_stats['errors']+=1
         if image_b64:
             try:
-                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=600)
+                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=800)
                 ans_raw=comp.choices[0].message.content
                 ans=clean_ai_response(ans_raw)
                 add_memory(chat_id,'user',text or '[фото]')
@@ -219,7 +219,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    text = f"╭━━━〔 🤖 ДАУН v44 SHORT PHOTO 〕━━━╮\n Йоу, {user}! Я пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
+    text = f"╭━━━〔 🤖 ДАУН v45 GOLD 〕━━━╮\n Йоу, {user}! Я пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -232,7 +232,7 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v44\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
+    text = f"🤖 Даун v45\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
     kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 @MakSon4ikk_228", url="https://t.me/MakSon4ikk_228")]])
     await update.message.reply_text(text, reply_markup=MAIN_KB)
     await update.message.reply_text("Мой создатель 👇", reply_markup=kb_inline)
@@ -323,7 +323,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v44 жив! SHORT PHOTO! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v45 жив! GOLD MIDDLE! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -332,7 +332,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v44 SHORT PHOTO FIX запуск')
+    print('Даун v45 GOLD MIDDLE запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -349,7 +349,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v44 short photo fix')
+    print('Бот запущен! v45 gold middle')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
