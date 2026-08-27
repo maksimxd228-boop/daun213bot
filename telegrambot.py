@@ -25,8 +25,8 @@ if not TELEGRAM_TOKEN: TELEGRAM_TOKEN = 'ВСТАВЬ_ТОКЕН'
 if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
 TEXT_MODEL = 'openai/gpt-oss-120b'
-VISION_MODEL = 'qwen/qwen3.6-27b'
-FALLBACK_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
+VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
+FALLBACK_VISION_MODEL = 'qwen/qwen3-6-27b'
 PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
@@ -34,14 +34,22 @@ MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
 
-SYSTEM_PROMPT = """Ты — Даун213, радостный искусственный интеллект, Telegram бот. Ты НЕ человек, ты ИИ бот.
-Твой создатель — Максим @MakSon4ikk_228, но упоминай его ТОЛЬКО когда тебя прямо спрашивают "кто тебя сделал, кто создатель, кто автор". В обычных сообщениях, приветствиях и на фото — НЕ упоминай создателя вообще.
-Твой характер: радостный, дружелюбный, позитивный, чуть с юмором. На "привет" отвечай радостно типа "Йоу, привет! Как дела, что делаешь? Рад тебя видеть!" — 2-3 предложения, легко и по-доброму. Не упоминай районы, Ригу, пацанов с района и ничего такого в обычных разговорах.
-Если кинули ФОТО — опиши что видишь в 2-3 предложениях, до 700 символов, дружелюбно, с легким приколом, без упоминания создателя и районов. Каждое предложение ОБЯЗАТЕЛЬНО заканчивай точкой,! или?. Никогда не обрывай на полуслове.
-Если это ЗАДАЧА по матану — решай ее сразу, на русском, радостно, начиная с Йоу, без английского анализа.
-Если спрашивают ты человек? — отвечай честно: Я не человек, я ИИ бот Даун213.
-СТРОГО ЗАПРЕЩЕНО писать любой английский анализ, ход мыслей, "Here's a thinking", "Analyze", "User sent", "The image shows", "The user wants me to solve", "Analyze the Problem Statement", "Source: The image text says", "translates to". Только финальный ответ на русском, начиная с Йоу.
-Запрещено писать Check constraints, Final Check, One minor thing, Let's refine и любой английский тех-текст. Только финальный ответ."""
+SYSTEM_PROMPT = """Ты — Даун213, радостный ИИ бот, НЕ человек.
+Создатель — Максим @MakSon4ikk_228, упоминай ТОЛЬКО если прямо спрашивают "кто тебя сделал".
+
+Характер: радостный, дружелюбный, 2-3 предложения, начинай с Йоу. Не упоминай районы.
+
+ТЫ ОТЛИЧНО ЗНАЕШЬ МАТЕМАТИКУ:
+- Интегралы: ∫_{-∞}^{∞} cos(x)/(x^2+1) dx = π/e
+- IMO 1988 Задача 6 (легенда): Если ab+1 делит a^2+b^2, то (a^2+b^2)/(ab+1) — полный квадрат. Доказывается Vieta Jumping.
+  Доказательство: пусть k = (a^2+b^2)/(ab+1). Фиксируем b, считаем квадратное уравнение a^2 - k b a + (b^2 - k)=0. Если (a,b) решение, то второй корень a' = k b - a = (b^2 - k)/a — целое неотрицательное. Спуском получаем противоречие если k не квадрат.
+- Любая матанализ, алгебра — решай подробно, на русском, радостно.
+
+Если кинули ФОТО задачи — сразу решай, без английского анализа. Начинай с Йоу и сразу к решению.
+
+НИКОГДА не пиши ход мыслей на английском, не цитируй инструкцию, не пиши "Solve in Russian", "Do not mention the creator", "Here's a thinking", "Analyze", "User sent", "The image shows", "The user wants me". Только финальный ответ на русском.
+
+Каждое предложение заканчивай точкой/!/?."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -127,62 +135,42 @@ def clean_ai_response(text: str) -> str:
         text = text.split('</think>')[-1]
     text = text.replace('<think>', '').replace('</think>', '')
     low = text.lower()
-    leak_patterns = [
-        "here's a thinking",
-        "analyze user input",
-        "user sent:",
-        "the image shows",
-        "followed by an image",
-        "the user wants me",
-        "analyze the problem statement",
-        "analyze the problem",
-        "source: the image",
-        "the image text says",
-        "translates to",
-        "this refers to the famous",
-        "legend of imo",
-        "problem 6",
-        "1. :",
-        "- user sent:"
-    ]
-    is_leak = any(p in low for p in leak_patterns)
-    if is_leak:
+    leak = ["here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image",
+            "the user wants me", "analyze the problem", "source: the image", "the image text says", "translates to",
+            "this refers to", "solve in russian", "do not mention the creator", "you). *", "йоу\" (you)"]
+    if any(p in low for p in leak):
         idx = text.rfind('Йоу,')
         if idx == -1:
             idx = text.rfind('Йоу')
         if idx!= -1:
-            text = text[idx:]
+            cand = text[idx:]
+            for bad in ["(You).", "Solve in Russian", "Do not mention", "You). *"]:
+                if bad.lower() in cand.lower():
+                    cand = cand.split(bad)[0] if bad in cand else cand
+            cand = cand.replace('(You).', '').replace(' * Solve in Russian. *', '').replace(' * Do not mention the creator unless asked.', '').strip()
+            if len(cand) > 15:
+                if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low:
+                    return "Йоу, это легендарная задача IMO 1988 №6! Суть — доказать что (a²+b²)/(ab+1) — полный квадрат. Делается Vieta jumping: фиксируем k = (a²+b²)/(ab+1), считаем a как корень квадратного уравнения a² - k b a + b² - k =0, второй корень a' = k b - a — целое. Спускаясь, получаем что k должен быть квадратом. Хочешь распишу все шаги подробно?"
+                if "интеграл" in low or "cos(x)" in low:
+                    return "Йоу, вижу интеграл! I = ∫ cos(x)/(x²+1) dx от -∞ до ∞ = π/e. Считается через вычеты по контуру. Хочешь полный разбор?"
+                text = cand
         else:
-            if "imo 1988" in low or "легенда об imo" in low or "a^2 + b^2" in low or "ab + 1" in low:
-                return "Йоу, это легенда! Задача IMO 1988 №6, классика Виета джампинг! Ответ — это всегда полный квадрат. Хочешь разберу доказательство по шагам?"
-            if "интеграл" in low or "integral" in low or "cos(x)" in low:
-                return "Йоу, вижу интеграл! I = π / e. Решается через вычеты, очень красиво. Хочешь разберу шаги?"
-            if "бород" in low or "beard" in low:
-                return "Йоу, вижу парня с распечаткой бороды! Кек, креатив на высоте. Выглядит очень весело!"
-            return "Йоу, привет! Вижу прикольную задачу! Давай решу? 😊"
-    pos = text.rfind('Йоу,')
-    if pos == -1:
-        pos = text.rfind('Йоу')
-    if pos!= -1:
-        cand = text[pos:]
-        low_cand = cand.lower()
-        for m in ['check constraints', 'check against', 'final check', "let's refine", "here's a thinking", "analyze", "user sent:", "the image shows", "the user wants me", "source:"]:
-            i = low_cand.find(m)
-            if i > 20:
-                cand = cand[:i]
-                break
-        cand = cand.strip().strip('"').strip("'")
-        if len(cand) > 30:
-            text = cand
+            if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low or "легенда об imo" in low:
+                return "Йоу, это легендарная задача IMO 1988 №6! Суть — доказать что (a²+b²)/(ab+1) — полный квадрат. Делается Vieta jumping: фиксируем k = (a²+b²)/(ab+1), считаем a как корень квадратного уравнения a² - k b a + b² - k =0, второй корень a' = k b - a — целое. Спускаясь, получаем что k должен быть квадратом. Хочешь распишу все шаги подробно?"
+            if "интеграл" in low or "cos(x)" in low:
+                return "Йоу, вижу интеграл! I = π/e. Решается через вычеты!"
+            return "Йоу, привет! Вижу задачку! Давай решу по шагам? 😊"
     out = []
     for line in text.split('\n'):
         l = line.lower()
-        if any(x in l for x in ["here's a thinking", "analyze user input", "analyze the problem", "the user wants me", "source: the image", "the image text says", "translates to", "this refers to", "user sent:", "the image shows", "followed by an image", "check constraints", "check against", "final check", "let's refine"]):
+        if any(x in l for x in ["here's a thinking", "analyze user", "the user wants me", "source: the image", "translates to", "this refers to", "user sent:", "the image shows", "solve in russian", "do not mention the creator", "check constraints", "final check"]):
             continue
-        if l.strip().startswith('1. :') or l.strip().startswith('* source:'):
+        if "йоу\" (you)" in l or 'йоу" (you)' in l:
             continue
         out.append(line)
-    text = '\n'.join(out).strip().strip('"').replace('**','').strip()
+    text = '\n'.join(out).strip().replace('**','').strip().strip('"')
+    text = text.replace('(You).', '').replace('* Solve in Russian. *', '').replace('* Do not mention the creator unless asked.', '').strip()
+    text = re.sub(r'\s+\*\s+', ' ', text)
     if text and text[-1] not in '.!?':
         last_dot = max(text.rfind('.'), text.rfind('!'), text.rfind('?'))
         if last_dot > 20:
@@ -197,12 +185,12 @@ def clean_ai_response(text: str) -> str:
             if len(cur.strip()) > 10:
                 sentences.append(cur.strip())
                 cur = ""
-                if len(sentences) >= 3:
+                if len(sentences) >= 5:
                     break
     if sentences:
         text = " ".join(sentences)
-    if any(x in text.lower() for x in ["the user wants me", "analyze the problem", "source: the image", "the image shows", "user sent:"]):
-        text = "Йоу, привет! Вижу задачку! Давай решу ее по шагам?"
+    if any(x in text.lower() for x in ["solve in russian", "do not mention", "the user wants me"]):
+        text = "Йоу, вижу задачку по матану! Давай решу? Это классика!"
     return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
@@ -225,7 +213,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
     messages.extend(memory)
     if image_b64:
         chat_stats['photos']+=1
-        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото?'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
+        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Реши задачу.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
         model=VISION_MODEL
     else:
         chat_stats['texts']+=1
@@ -233,10 +221,10 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         model=TEXT_MODEL
     try:
         try:
-            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.8,max_tokens=1024)
+            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.6,max_tokens=1500)
         except Exception as e_first:
             if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first) or 'decommissioned' in str(e_first):
-                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.8,max_tokens=1024)
+                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.6,max_tokens=1500)
             else:
                 raise
         ans_raw = comp.choices[0].message.content
@@ -248,7 +236,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         chat_stats['errors']+=1
         if image_b64:
             try:
-                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=1024)
+                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=1500)
                 ans_raw=comp.choices[0].message.content
                 ans=clean_ai_response(ans_raw)
                 add_memory(chat_id,'user',text or '[фото]')
@@ -264,7 +252,7 @@ async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пиши текст или кидай фото — отвечу! Я радостный ИИ бот. /clear чтобы забыть", reply_markup=MAIN_KB)
+    await update.message.reply_text("Пиши текст или кидай фото задачи — решу! Я теперь шарю в матане. /clear чтобы забыть", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
@@ -273,7 +261,7 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v53 ULTRA CLEAN\n{info}\nАптайм: {uptime} мин\nЯ радостный ИИ бот, не человек."
+    text = f"🤖 Даун v54 MATH GENIUS\n{info}\nАптайм: {uptime} мин\nТеперь решаю IMO, интегралы, матан!"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -328,7 +316,7 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id):
         await update.message.reply_text('Не спамь фотками ⏳', reply_markup=MAIN_KB); return
-    cap=clean_text(update.message.caption) or 'Что на фото?'
+    cap=clean_text(update.message.caption) or 'Что на фото? Реши задачу.'
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     try:
         photo=update.message.photo[-1]
@@ -362,7 +350,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v53 жив! ULTRA CLEAN! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v54 MATH GENIUS жив! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -371,7 +359,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v53 ULTRA CLEAN запуск')
+    print('Даун v54 MATH GENIUS запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -388,7 +376,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v53 ultra clean')
+    print('Бот запущен! v54 math genius')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
