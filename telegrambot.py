@@ -54,7 +54,7 @@ def format_time_full():
 def format_time(dt: datetime) -> str: return dt.strftime('%H:%M:%S %d.%m.%Y')
 def format_date_short(dt: datetime) -> str: return dt.strftime('%H:%M %d.%m.%Y')
 
-SYSTEM_PROMPT = """Ты — Даун213, теплый позитивный бот. Создатель — Максим @MakSon4ikk_228. Йоу редко, 1 из 5. Без LaTeX."""
+SYSTEM_PROMPT = """Ты — Даун213, теплый позитивный бот. Создатель — Максим @MakSon4ikk_228. Йоу редко, 1 из 5. Без LaTeX. Если просят нарисовать — не объясняй, просто рисуй."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -169,21 +169,47 @@ def safe_eval(expr: str):
         return eval_node(tree.body)
     except: return None
 
+def enhance_prompt_for_image(user_prompt: str) -> str:
+    low = user_prompt.lower()
+    # Если Groq есть и промпт русский/короткий — переводим через LLM
+    if groq_client and (len(user_prompt) < 70 or any(c in low for c in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя')):
+        try:
+            comp = groq_client.chat.completions.create(
+                model=TEXT_MODEL_FALLBACK,
+                messages=[
+                    {"role": "system", "content": "Ты переводчик промптов для Stable Diffusion. Переведи на английский и детализируй. Правила: если rtx, ртх, видеокарта, видюха, 5090, 4090 — это ВСЕГДА 'Nvidia GeForce RTX 5090 graphics card, photorealistic, triple fan, black, studio lighting, on white background, 8k, highly detailed'. Если кот — 'cute fluffy cat'. Всегда добавляй photorealistic, highly detailed, 8k. Ответ ТОЛЬКО промптом на английском до 180 символов, без объяснений."},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=200
+            )
+            eng = comp.choices[0].message.content.strip().replace('"','').replace("'",'')
+            if len(eng) > 10:
+                logger.info(f"Prompt enhanced: '{user_prompt}' -> '{eng}'")
+                return eng
+        except Exception as e:
+            logger.warning(f"Enhance fail: {e}")
+    # Фолбек
+    if 'ртх' in low or 'rtx' in low or 'видеокарта' in low or 'видюха' in low or '5090' in low:
+        return f"Nvidia GeForce RTX 5090 graphics card, photorealistic, triple fan, black, studio lighting, on white background, 8k, highly detailed, {user_prompt}"
+    return f"{user_prompt}, photorealistic, highly detailed, 8k, studio lighting"
+
 def generate_image_pollinations(prompt: str) -> Optional[BytesIO]:
+    final_prompt = enhance_prompt_for_image(prompt)
     try:
-        safe_prompt = urllib.parse.quote(prompt[:500])
+        safe_prompt = urllib.parse.quote(final_prompt[:500])
         urls = [
-            f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&seed={random.randint(1,999999)}",
-            f"https://gen.pollinations.ai/image/{safe_prompt}?width=1024&height=1024"
+            f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=1024&nologo=true&seed={random.randint(1,999999)}&enhance=true&model=flux",
+            f"https://gen.pollinations.ai/image/{safe_prompt}?width=1024&height=1024&nologo=true"
         ]
         for url in urls:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36','Accept': 'image/*'})
-                with urllib.request.urlopen(req, timeout=40) as resp:
+                with urllib.request.urlopen(req, timeout=45) as resp:
                     data = resp.read()
                     ctype = resp.headers.get('Content-Type','')
                     if len(data) > 8000 and ('image' in ctype or data[:2]==b'\xff\xd8' or data[:4]==b'\x89PNG'):
-                        logger.info(f"Image OK {len(data)} from {url}")
+                        logger.info(f"Image OK {len(data)} prompt={final_prompt}")
                         return BytesIO(data)
             except Exception as e:
                 logger.warning(f"Gen fail {url}: {e}")
@@ -231,13 +257,14 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    await update.message.reply_text(f"Привет, {user}! Я теперь рисую картинки — пиши 'нарисуй...'", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Привет, {user}! Жми 🎨 Картинка и пиши что рисовать — хоть 'кота', хоть 'ртх 5090'!", reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🎨 Картинка — 'нарисуй кота в космосе'\n🕒 Время — точное время", reply_markup=MAIN_KB)
+    await update.message.reply_text("🎨 Картинка -> пишешь 'кота' или 'ртх 5090' и он рисует. Понимает видюху как видеокарту.", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
+    context.user_data['awaiting_image'] = False
     await update.message.reply_text("Память очищена!", reply_markup=MAIN_KB)
 
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -245,11 +272,11 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime = int((time.time() - chat_stats['start_time'])//60)
     first_str = format_date_short(FIRST_LAUNCH_DATE)
     time_text = format_time_full()
-    text = f"🤖 Даун v67 FIXED x2\n{info}\n🚀 Первый запуск: {first_str}\n{time_text}\n⏱ {uptime} мин\n📝 {TEXT_MODEL}\n👁 {VISION_MODEL}\n🎨 Pollinations FIXED x2\n{get_stats_text()}"
+    text = f"🤖 Даун v67 FIXED x4 BUTTON\n{info}\n🚀 {first_str}\n{time_text}\n⏱ {uptime} мин\n🎨 Flux + умный промпт + кнопка\n{get_stats_text()}"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\nГенерация: Flux SMART\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
@@ -264,7 +291,8 @@ async def time_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def image_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = ' '.join(context.args) if context.args else ''
     if not prompt:
-        await update.message.reply_text("Напиши что нарисовать! /image кот в космосе", reply_markup=MAIN_KB)
+        context.user_data['awaiting_image'] = True
+        await update.message.reply_text("Что нарисовать? Напиши например: кота, rtx 5090, машину 🎨", reply_markup=MAIN_KB)
         return
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     await update.message.reply_text(f"Рисую: {prompt}... ⏳", reply_markup=MAIN_KB)
@@ -288,15 +316,44 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt=clean_text(update.message.text)
     if not txt: return
     low = txt.lower()
-    if any(x in low for x in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', '🎨 картинка']):
+
+    # 1. Нажатие кнопки 🎨 Картинка — только кнопка, без текста
+    if low in ['🎨 картинка', 'картинка'] or ( 'картинка' in low and len(low) < 15 ):
+        context.user_data['awaiting_image'] = True
+        await update.message.reply_text("Что нарисовать? Напиши например: кота, rtx 5090, машину 🎨", reply_markup=MAIN_KB)
+        return
+
+    # 2. Проверка — ждем ли промпт после кнопки
+    awaiting = context.user_data.get('awaiting_image', False)
+
+    # 3. Запрос на картинку — либо ждем после кнопки, либо есть слово нарисуй
+    is_image_request = awaiting or any(x in low for x in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', 'сгенерируй'])
+
+    if is_image_request:
         prompt = txt
-        for word in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', '🎨 картинка']:
-            if word in low:
-                prompt = low.split(word,1)[-1].strip(' :,-')
-                break
+        if awaiting:
+            # После кнопки ВЕСЬ текст — это промпт, даже "кота"
+            prompt = txt
+            context.user_data['awaiting_image'] = False
+        else:
+            # Если есть слово нарисуй — вырезаем его
+            for word in ['нарисуй', 'сгенерируй картинку', 'сделай картинку', 'нарисовать', 'сгенерируй']:
+                if word in low:
+                    parts = re.split(word, txt, flags=re.IGNORECASE)
+                    if len(parts) > 1 and parts[1].strip():
+                        prompt = parts[1].strip(' :,-')
+                    else:
+                        # если написал просто "нарисуй" без объекта
+                        context.user_data['awaiting_image'] = True
+                        await update.message.reply_text("Что именно нарисовать? Напиши например: кота", reply_markup=MAIN_KB)
+                        return
+                    break
+
         if not prompt or len(prompt) < 2:
-            await update.message.reply_text("Что нарисовать? Пример: нарисуй киберпанк Ригу", reply_markup=MAIN_KB)
+            context.user_data['awaiting_image'] = True
+            await update.message.reply_text("Что именно нарисовать? Пример: кота, rtx 5090", reply_markup=MAIN_KB)
             return
+
         await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
         await update.message.reply_text(f"Рисую: {prompt}... ⏳🎨", reply_markup=MAIN_KB)
         img = generate_image_pollinations(prompt)
@@ -304,8 +361,9 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_stats['images']+=1
             await update.message.reply_photo(photo=img, caption=f"Готово! {prompt}", reply_markup=MAIN_KB)
         else:
-            await update.message.reply_text("Не вышло, попробуй еще раз. Иногда Pollinations лежит.", reply_markup=MAIN_KB)
+            await update.message.reply_text("Не вышло, попробуй еще раз. Иногда генератор лежит минуту.", reply_markup=MAIN_KB)
         return
+
     if any(x in low for x in ['сколько времени', 'который час', '🕒 время', 'точное время']):
         await update.message.reply_text(format_time_full(), reply_markup=MAIN_KB); return
     if 'инфо' in low: await about_h(update, context); return
@@ -313,7 +371,7 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
         await update.message.reply_text("Меня создал Максим @MakSon4ikk_228!", reply_markup=MAIN_KB)
         await update.message.reply_text("Вот его профиль 👇", reply_markup=kb_inline); return
-    if 'забыть' in low: clear_memory(update.effective_chat.id); await update.message.reply_text("Память очищена!", reply_markup=MAIN_KB); return
+    if 'забыть' in low: clear_memory(update.effective_chat.id); context.user_data['awaiting_image']=False; await update.message.reply_text("Память очищена!", reply_markup=MAIN_KB); return
     if 'админу' in low: await update.message.reply_text("Напиши @MakSon4ikk_228", reply_markup=MAIN_KB); return
     if 'помощ' in low: await help_h(update, context); return
     if 'модель' in low: await model_h(update, context); return
@@ -338,54 +396,4 @@ async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ans=await ask_groq(update.effective_chat.id,cap,b64)
         for p in split_text(ans):
             await update.message.reply_text(p, reply_markup=MAIN_KB)
-    except Exception as e:
-        await update.message.reply_text(f'Ошибка с фото: {e}', reply_markup=MAIN_KB)
-
-async def doc_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc=update.message.document
-    if not doc or not is_image_file(doc.file_name): return
-    try:
-        file=await doc.get_file()
-        bio=BytesIO()
-        await file.download_to_memory(bio)
-        b64=encode_b64(bio.getvalue())
-        ans=await ask_groq(update.effective_chat.id,doc.file_name,b64)
-        for p in split_text(ans):
-            await update.message.reply_text(p, reply_markup=MAIN_KB)
-    except Exception as e:
-        await update.message.reply_text(f'Ошибка: {e}', reply_markup=MAIN_KB)
-
-async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Хех, стикер прикольный!', reply_markup=MAIN_KB)
-
-app_flask=Flask(__name__)
-@app_flask.route('/')
-def home():
-    return f"Даун v67 FIXED x2 жив! {format_date_short(FIRST_LAUNCH_DATE)} | {format_time_full()} | {get_stats_text()}"
-@app_flask.route('/health')
-def health(): return 'OK',200
-def run_flask(): app_flask.run(host='0.0.0.0',port=PORT)
-def main():
-    print(f'Даун v67 FIXED x2 запуск')
-    threading.Thread(target=run_flask,daemon=True).start()
-    if 'ВСТАВЬ' in TELEGRAM_TOKEN:
-        while True: time.sleep(60)
-    application=ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(CommandHandler('start',start_h))
-    application.add_handler(CommandHandler('help',help_h))
-    application.add_handler(CommandHandler('clear',clear_h))
-    application.add_handler(CommandHandler('about',about_h))
-    application.add_handler(CommandHandler('model',model_h))
-    application.add_handler(CommandHandler('ping',ping_h))
-    application.add_handler(CommandHandler('stats',stats_h))
-    application.add_handler(CommandHandler('time',time_h))
-    application.add_handler(CommandHandler('image',image_h))
-    application.add_handler(CommandHandler('limit',limit_h))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,text_h))
-    application.add_handler(MessageHandler(filters.PHOTO,photo_h))
-    application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
-    application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v67 FIXED x2')
-    application.run_polling(drop_pending_updates=True)
-if __name__=='__main__':
-    main()
+    e
