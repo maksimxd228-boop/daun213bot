@@ -237,45 +237,39 @@ def enhance(p):
 
 def gen_img(prompt):
     low=prompt.lower()
-    # --- SWITCHER v69 FIXED ---
-    is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu'])
-    is_hq = any(k in low for k in ['hq','4k','8k','ультра','детально','фотореализм','realistic'])
-    
-    if is_rtx:
-        final = f"Nvidia GeForce RTX 5090 Founders Edition graphics card, product photography, black metal shroud with silver accents, dual axial fans, RTX logo, studio lighting on pure white background, ultra sharp, 8k, professional product shot, {prompt}"
+    is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia'])
+    if 'лысый' in low and 'кот' in low:
+        final = "bald sphynx cat, old wise cat wearing round glasses, sitting on chair, photorealistic, highly detailed, 8k"
+    elif 'носорог' in low:
+        final = "photorealistic rhinoceros, large rhino animal in wild, detailed skin, savanna background, 8k, wildlife photo"
+    elif is_rtx:
+        final = "Nvidia GeForce RTX 5090 Founders Edition graphics card, black dual fans, product photography, white background, ultra detailed, 8k"
     else:
         final = enhance(prompt)
-        if is_hq:
-            final += ", ultra detailed, 8k, sharp focus, highly detailed"
-    
+
     try:
+        import urllib.parse, random, urllib.request
+        from io import BytesIO
         safe=urllib.parse.quote(final[:600])
-        seed=random.randint(1,9999999)
-        # переключатель моделей: flux = красиво, turbo = быстро, sdxl = стабильно
-        models = []
-        if is_rtx:
-            models = ["flux", "flux", "turbo"] # для RTX 2 раза пробуем flux
-        else:
-            models = ["flux", "turbo", "sdxl"]
-            
-        urls=[]
-        for m in models:
-            urls.append(f"https://image.pollinations.ai/prompt/{safe}?width=1280&height=1280&nologo=true&seed={seed}&enhance=true&model={m}&nofeed=true")
-            seed+=1
-        urls.append(f"https://gen.pollinations.ai/image/{safe}?width=1280&height=1280")
-        
+        seed=random.randint(100000,9999999)
+        urls=[
+            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed}&model=flux&enhance=false&nofeed=true",
+            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+1}&model=turbo&enhance=false",
+            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+2}&model=flux&enhance=false",
+        ]
         for url in urls:
             try:
                 req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*'})
-                with urllib.request.urlopen(req,timeout=60) as r:
+                with urllib.request.urlopen(req,timeout=70) as r:
                     d=r.read()
-                    if len(d)>15000: # фильтр на мусор
+                    if len(d)>20000:
                         return BytesIO(d)
             except:
                 continue
     except:
         pass
     return None
+
 
 async def ask(cid,text,b64img=None):
     if client is None:
@@ -335,7 +329,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v69 FIXED CAT V2\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v69 FIXED RHINO\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -515,7 +509,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v69 FIXED CAT V2 жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v69 FIXED RHINO жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -525,7 +519,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v69 FIXED CAT V2 запуск')
+    print('Даун v69 FIXED RHINO запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
