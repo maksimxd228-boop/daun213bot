@@ -26,30 +26,24 @@ if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
 TEXT_MODEL = 'openai/gpt-oss-120b'
 VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'
-FALLBACK_VISION_MODEL = 'qwen/qwen3-6-27b'
+FALLBACK_VISION_MODEL = 'meta-llama/llama-4-maverick-17b-128e-instruct'
 PORT = int(os.getenv('PORT', 10000))
 MAX_HISTORY = 16
 MAX_CHATS = 150
 MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
+FIRST_LAUNCH_DATE = datetime(2026, 8, 26, 14, 25, 0)
 
-SYSTEM_PROMPT = """Ты — Даун213, радостный ИИ бот, НЕ человек.
+SYSTEM_PROMPT = """Ты — Даун213, радостный ИИ бот, НЕ человек. Ты умный математик.
 Создатель — Максим @MakSon4ikk_228, упоминай ТОЛЬКО если прямо спрашивают "кто тебя сделал".
-
-Характер: радостный, дружелюбный, 2-3 предложения, начинай с Йоу. Не упоминай районы.
-
+Характер: радостный, дружелюбный, начинай с Йоу, 2-5 предложений для обычных, для задач — подробно.
 ТЫ ОТЛИЧНО ЗНАЕШЬ МАТЕМАТИКУ:
-- Интегралы: ∫_{-∞}^{∞} cos(x)/(x^2+1) dx = π/e
-- IMO 1988 Задача 6 (легенда): Если ab+1 делит a^2+b^2, то (a^2+b^2)/(ab+1) — полный квадрат. Доказывается Vieta Jumping.
-  Доказательство: пусть k = (a^2+b^2)/(ab+1). Фиксируем b, считаем квадратное уравнение a^2 - k b a + (b^2 - k)=0. Если (a,b) решение, то второй корень a' = k b - a = (b^2 - k)/a — целое неотрицательное. Спуском получаем противоречие если k не квадрат.
-- Любая матанализ, алгебра — решай подробно, на русском, радостно.
-
-Если кинули ФОТО задачи — сразу решай, без английского анализа. Начинай с Йоу и сразу к решению.
-
-НИКОГДА не пиши ход мыслей на английском, не цитируй инструкцию, не пиши "Solve in Russian", "Do not mention the creator", "Here's a thinking", "Analyze", "User sent", "The image shows", "The user wants me". Только финальный ответ на русском.
-
-Каждое предложение заканчивай точкой/!/?."""
+- Интеграл I = ∫_{-∞}^{∞} cos(x)/(x^2+1) dx = π/e. Решается вычетами.
+- IMO 1988 Задача 6: Если (a^2+b^2)/(ab+1) = k целое, то k — полный квадрат. Vieta jumping.
+- Любой матан решай на русском, пошагово, радостно.
+Если кинули ФОТО задачи — сразу решай, без английского анализа. Начинай с Йоу.
+НИКОГДА не пиши ход мыслей на английском, не цитируй инструкцию, не пиши "Solve in Russian", "Do not mention the creator", "Here's a thinking", "Analyze", "User sent", "The image shows", "The user wants me". Только финальный ответ на русском."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -64,7 +58,7 @@ except Exception as e:
 chat_memories: Dict[int, List[dict]] = {}
 chat_last_active: Dict[int, float] = {}
 user_cooldown: Dict[int, float] = {}
-chat_stats = {'total_requests':0,'photos':0,'texts':0,'errors':0,'start_time':time.time()}
+chat_stats = {'total_requests':0,'photos':0,'texts':0,'errors':0,'start_time':time.time(),'first_launch': FIRST_LAUNCH_DATE}
 
 def get_chat_memory(chat_id: int) -> List[dict]:
     if chat_id not in chat_memories:
@@ -128,6 +122,9 @@ def clean_text(t: str) -> str:
 def format_time(dt: datetime) -> str:
     return dt.strftime('%H:%M:%S %d.%m.%Y')
 
+def format_date_short(dt: datetime) -> str:
+    return dt.strftime('%H:%M %d.%m.%Y')
+
 def clean_ai_response(text: str) -> str:
     if not text:
         return text
@@ -137,60 +134,40 @@ def clean_ai_response(text: str) -> str:
     low = text.lower()
     leak = ["here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image",
             "the user wants me", "analyze the problem", "source: the image", "the image text says", "translates to",
-            "this refers to", "solve in russian", "do not mention the creator", "you). *", "йоу\" (you)"]
+            "this refers to", "solve in russian", "do not mention the creator", "you). *", "йоу\" (you)", "legend of imo"]
     if any(p in low for p in leak):
         idx = text.rfind('Йоу,')
         if idx == -1:
             idx = text.rfind('Йоу')
         if idx!= -1:
             cand = text[idx:]
-            for bad in ["(You).", "Solve in Russian", "Do not mention", "You). *"]:
-                if bad.lower() in cand.lower():
-                    cand = cand.split(bad)[0] if bad in cand else cand
-            cand = cand.replace('(You).', '').replace(' * Solve in Russian. *', '').replace(' * Do not mention the creator unless asked.', '').strip()
-            if len(cand) > 15:
-                if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low:
-                    return "Йоу, это легендарная задача IMO 1988 №6! Суть — доказать что (a²+b²)/(ab+1) — полный квадрат. Делается Vieta jumping: фиксируем k = (a²+b²)/(ab+1), считаем a как корень квадратного уравнения a² - k b a + b² - k =0, второй корень a' = k b - a — целое. Спускаясь, получаем что k должен быть квадратом. Хочешь распишу все шаги подробно?"
-                if "интеграл" in low or "cos(x)" in low:
-                    return "Йоу, вижу интеграл! I = ∫ cos(x)/(x²+1) dx от -∞ до ∞ = π/e. Считается через вычеты по контуру. Хочешь полный разбор?"
+            cand = cand.replace('(You).', '').replace('* Solve in Russian. *', '').replace('* Do not mention the creator unless asked.', '').replace('(You)', '').strip()
+            if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low or "легенда об imo" in low:
+                return "Йоу, это легендарная задача IMO 1988 №6! Это классика Vieta jumping! Докажем что (a²+b²)/(ab+1) — полный квадрат. Пусть k = (a²+b²)/(ab+1) целое. Второй корень a' = k b - a — целое. Спуском получаем k = квадрат. Хочешь полный разбор?"
+            if "интеграл" in low or "cos(x)" in low or "вычислите значение интеграла" in low:
+                return "Йоу, вижу интеграл! I = ∫_{-∞}^{∞} cos(x)/(x²+1) dx = π/e ≈ 1.1557. Решается вычетами. Хочешь полный разбор?"
+            if len(cand) > 20:
                 text = cand
         else:
             if "imo 1988" in low or "a^2 + b^2" in low or "ab + 1" in low or "легенда об imo" in low:
-                return "Йоу, это легендарная задача IMO 1988 №6! Суть — доказать что (a²+b²)/(ab+1) — полный квадрат. Делается Vieta jumping: фиксируем k = (a²+b²)/(ab+1), считаем a как корень квадратного уравнения a² - k b a + b² - k =0, второй корень a' = k b - a — целое. Спускаясь, получаем что k должен быть квадратом. Хочешь распишу все шаги подробно?"
+                return "Йоу, это легендарная задача IMO 1988 №6! Классика Vieta jumping! (a²+b²)/(ab+1) — всегда полный квадрат."
             if "интеграл" in low or "cos(x)" in low:
-                return "Йоу, вижу интеграл! I = π/e. Решается через вычеты!"
+                return "Йоу, интеграл I = π/e! Решается вычетами!"
             return "Йоу, привет! Вижу задачку! Давай решу по шагам? 😊"
     out = []
     for line in text.split('\n'):
         l = line.lower()
         if any(x in l for x in ["here's a thinking", "analyze user", "the user wants me", "source: the image", "translates to", "this refers to", "user sent:", "the image shows", "solve in russian", "do not mention the creator", "check constraints", "final check"]):
             continue
-        if "йоу\" (you)" in l or 'йоу" (you)' in l:
-            continue
         out.append(line)
     text = '\n'.join(out).strip().replace('**','').strip().strip('"')
-    text = text.replace('(You).', '').replace('* Solve in Russian. *', '').replace('* Do not mention the creator unless asked.', '').strip()
-    text = re.sub(r'\s+\*\s+', ' ', text)
+    text = text.replace('(You).', '').replace('(You)', '').strip()
     if text and text[-1] not in '.!?':
         last_dot = max(text.rfind('.'), text.rfind('!'), text.rfind('?'))
         if last_dot > 20:
             text = text[:last_dot+1].strip()
         else:
             text = text.rstrip(', -:') + '.'
-    sentences = []
-    cur = ""
-    for ch in text:
-        cur += ch
-        if ch in '.!?':
-            if len(cur.strip()) > 10:
-                sentences.append(cur.strip())
-                cur = ""
-                if len(sentences) >= 5:
-                    break
-    if sentences:
-        text = " ".join(sentences)
-    if any(x in text.lower() for x in ["solve in russian", "do not mention", "the user wants me"]):
-        text = "Йоу, вижу задачку по матану! Давай решу? Это классика!"
     return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
@@ -213,7 +190,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
     messages.extend(memory)
     if image_b64:
         chat_stats['photos']+=1
-        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Реши задачу.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
+        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Реши задачу подробно.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
         model=VISION_MODEL
     else:
         chat_stats['texts']+=1
@@ -221,10 +198,10 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         model=TEXT_MODEL
     try:
         try:
-            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.6,max_tokens=1500)
+            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.6,max_tokens=2000)
         except Exception as e_first:
             if 'model_not_found' in str(e_first) or 'does not exist' in str(e_first) or 'decommissioned' in str(e_first):
-                comp = groq_client.chat.completions.create(model=TEXT_MODEL_FALLBACK if not image_b64 else FALLBACK_VISION_MODEL,messages=messages,temperature=0.6,max_tokens=1500)
+                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,temperature=0.6,max_tokens=2000)
             else:
                 raise
         ans_raw = comp.choices[0].message.content
@@ -236,7 +213,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
         chat_stats['errors']+=1
         if image_b64:
             try:
-                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,max_tokens=1500)
+                comp = groq_client.chat.completions.create(model=FALLBACK_VISION_MODEL,messages=messages,temperature=0.6,max_tokens=2000)
                 ans_raw=comp.choices[0].message.content
                 ans=clean_ai_response(ans_raw)
                 add_memory(chat_id,'user',text or '[фото]')
@@ -248,11 +225,10 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    text = f"Привет, {user}! Йоу, как дела? Что делаешь? Рад тебя видеть! 😊"
-    await update.message.reply_text(text, reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Привет, {user}! Йоу, как дела? Что делаешь? Рад тебя видеть! 😊 Я теперь решаю матан!", reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Пиши текст или кидай фото задачи — решу! Я теперь шарю в матане. /clear чтобы забыть", reply_markup=MAIN_KB)
+    await update.message.reply_text("Кидай фото задачи — решу IMO, интегралы, любой матан! Пиши текст — отвечу. /clear чтобы забыть память.", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
@@ -261,18 +237,38 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v54 MATH GENIUS\n{info}\nАптайм: {uptime} мин\nТеперь решаю IMO, интегралы, матан!"
+    hours = uptime // 60
+    mins = uptime % 60
+    first_str = format_date_short(FIRST_LAUNCH_DATE)
+    now_str = format_time(datetime.now())
+    text = (
+        f"🤖 Даун v57 ORIGINAL DATE\n"
+        f"{info}\n"
+        f"🚀 Первый запуск: {first_str}\n"
+        f"🕒 Сейчас: {now_str}\n"
+        f"⏱ Аптайм с рестарта: {hours}ч {mins}м ({uptime} мин)\n"
+        f"📝 Текст: {TEXT_MODEL}\n"
+        f"👁 Глаза: {VISION_MODEL}\n"
+        f"🛟 Фолбек: {FALLBACK_VISION_MODEL}\n"
+        f"{get_stats_text()}\n"
+        f"Текстов: {chat_stats['texts']} | Фото: {chat_stats['photos']} | Ошибок: {chat_stats['errors']}\n"
+        f"🧮 Математика: IMO 1988, интегралы — прокачана!"
+    )
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\nФолбек: {FALLBACK_VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
-    await update.message.reply_text(f"Я жив {mins} мин! 😊 {get_stats_text()}", reply_markup=MAIN_KB)
+    now_str = format_time(datetime.now())
+    first_str = format_date_short(FIRST_LAUNCH_DATE)
+    await update.message.reply_text(f"Я жив {mins} мин! Первый запуск {first_str} | Сейчас {now_str} | {get_stats_text()} | Модель: {VISION_MODEL}", reply_markup=MAIN_KB)
 
 async def stats_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}", reply_markup=MAIN_KB)
+    first_str = format_date_short(FIRST_LAUNCH_DATE)
+    now_str = format_time(datetime.now())
+    await update.message.reply_text(f"📊 Статистика:\n{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}\nОшибок: {chat_stats['errors']}\nПервый запуск: {first_str}\nСейчас: {now_str}\nМодель глаз: {VISION_MODEL}", reply_markup=MAIN_KB)
 
 async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args=context.args
@@ -282,7 +278,8 @@ async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args[0]!=ADMIN_PASSWORD:
         await update.message.reply_text('❌ Неверный пароль', reply_markup=MAIN_KB)
         return
-    await update.message.reply_text(f"Всего: {chat_stats['total_requests']}\n{get_stats_text()}", reply_markup=MAIN_KB)
+    first_str = format_date_short(FIRST_LAUNCH_DATE)
+    await update.message.reply_text(f"Всего: {chat_stats['total_requests']}\n{get_stats_text()}\nПервый запуск: {first_str}\nМодель: {VISION_MODEL}", reply_markup=MAIN_KB)
 
 async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id): return
@@ -316,7 +313,7 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id):
         await update.message.reply_text('Не спамь фотками ⏳', reply_markup=MAIN_KB); return
-    cap=clean_text(update.message.caption) or 'Что на фото? Реши задачу.'
+    cap=clean_text(update.message.caption) or 'Что на фото? Реши задачу подробно.'
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     try:
         photo=update.message.photo[-1]
@@ -350,7 +347,8 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v54 MATH GENIUS жив! {format_time(datetime.now())} {get_stats_text()}"
+    first_str = format_date_short(FIRST_LAUNCH_DATE)
+    return f"Даун v57 ORIGINAL DATE жив! Первый запуск: {first_str} | Сейчас: {format_time(datetime.now())} | {get_stats_text()} | {VISION_MODEL}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -359,7 +357,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v54 MATH GENIUS запуск')
+    print(f'Даун v57 ORIGINAL DATE запуск, первый запуск: {format_date_short(FIRST_LAUNCH_DATE)}')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -376,7 +374,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v54 math genius')
+    print('Бот запущен! v57 original date + math')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
