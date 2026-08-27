@@ -24,7 +24,6 @@ GROQ_API_KEY = get_env_smart('GROQ_API_KEY','GROQ','GROQ_KEY')
 if not TELEGRAM_TOKEN: TELEGRAM_TOKEN = 'ВСТАВЬ_ТОКЕН'
 if not GROQ_API_KEY: GROQ_API_KEY = 'ВСТАВЬ_GROQ'
 
-# СТАРЫЕ ГЛАЗА — РАБОЧИЕ
 TEXT_MODEL = 'openai/gpt-oss-120b'
 VISION_MODEL = 'qwen/qwen3.6-27b'
 VISION_MODEL_2 = 'qwen/qwen3-32b'
@@ -39,21 +38,24 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
 FIRST_LAUNCH_DATE = datetime(2026, 8, 26, 14, 25, 0)
 
-SYSTEM_PROMPT = """Ты — Даун213, доброжелательный и позитивный ИИ бот.
+SYSTEM_PROMPT = """Ты — Даун213, позитивный и дружелюбный бот. НЕ человек.
 Создатель — Максим @MakSon4ikk_228, упоминай ТОЛЬКО если спрашивают "кто тебя сделал".
 
-ХАРАКТЕР: Сбалансированно-позитивный, для взрослых и молодежи.
-- На приветствие: "Йоу, привет! Рад тебя видеть! Как дела? 😊" — тепло, без крика.
-- Юмор легкий, добрый, без перебора сленга. 1-2 эмодзи максимум.
-- Если фото — описывай четко и с улыбкой.
-- Если задача (IMO, интеграл) — решай спокойно, уверенно, по шагам, с позитивом: "Отличная задачка, давай разберем!"
-- Общайся уважительно, но дружелюбно. Подходит и для взрослых.
-- Не грусти, но и не кричи. Ты приятный собеседник.
+Характер: спокойный позитив, подходит для взрослых. Начинай с Йоу, 1 эмодзи максимум.
 
-МАТЕМАТИКА: Знаешь IMO 1988 №6 — (a²+b²)/(ab+1) всегда квадрат, Vieta jumping. Интеграл ∫ cos(x)/(x²+1) dx = π/e.
-Если фото задачи — решай сразу, на русском, понятно.
+КРИТИЧНО ВАЖНО ПРО ФОРМУЛЫ:
+НИКОГДА не используй LaTeX! Запрещено: \\[, \\], \\(, \\), \\frac, \\Delta, \\quad, \\Longrightarrow, ^{2}.
+Пиши формулы ПРОСТЫМ ТЕКСТОМ как в чате:
+- (a^2+b^2)/(ab+1)
+- k = c^2
+- a' = k*b - a
+- Delta = k^2+4k-4 = t^2
+- (t-k)(t+k)=4(k-1)
+- a^2 - k*b*a + (b^2 - k) = 0
+- S = a+b
+Пиши понятно, по шагам, без LaTeX.
 
-НИКОГДА не пиши английский ход мыслей, только финальный ответ на русском."""
+Математика: IMO 1988 №6 — (a^2+b^2)/(ab+1) всегда квадрат, Vieta jumping. Интеграл cos(x)/(x^2+1) = pi/e."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -135,48 +137,51 @@ def format_time(dt: datetime) -> str:
 def format_date_short(dt: datetime) -> str:
     return dt.strftime('%H:%M %d.%m.%Y')
 
+def fix_latex_to_plain(text: str) -> str:
+    # Убираем LaTeX обертки
+    text = text.replace('\\[','').replace('\\]','').replace('\\(','').replace('\\)','')
+    text = text.replace('$$','').replace('$','')
+    # Замены LaTeX команд
+    text = re.sub(r'\\frac\{([^{}]+)\}\{([^{}]+)\}', r'(\1)/(\2)', text)
+    text = re.sub(r'\\tfrac\{([^{}]+)\}\{([^{}]+)\}', r'(\1)/(\2)', text)
+    text = re.sub(r'\\Delta', 'Delta', text)
+    text = re.sub(r'\\quad', ' ', text)
+    text = re.sub(r'\\Longrightarrow|\\Rightarrow|\\rightarrow', '=>', text)
+    text = re.sub(r'\\ge', '>=', text)
+    text = re.sub(r'\\le', '<=', text)
+    text = re.sub(r'\\neq', '!=', text)
+    text = re.sub(r'\\cdot', '*', text)
+    text = re.sub(r'\\bigl|\\bigr|\\Bigl|\\Bigr|\\left|\\right', '', text)
+    text = re.sub(r'\^\{2\}', '^2', text)
+    text = re.sub(r'\^\{([0-9]+)\}', r'^\1', text)
+    text = re.sub(r'\\', '', text) # остатки слешей
+    # Чистим двойные пробелы
+    text = re.sub(r'\s+',' ', text)
+    return text.strip()
+
 def clean_ai_response(text: str) -> str:
     if not text:
         return text
     if '</think>' in text:
         text = text.split('</think>')[-1]
     text = text.replace('<think>', '').replace('</think>', '')
+    # Сначала фиксим LaTeX
+    text = fix_latex_to_plain(text)
     low = text.lower()
     leak = ["here's a thinking", "analyze user input", "user sent:", "the image shows", "followed by an image",
-            "the user wants me", "analyze the problem statement", "source: the image", "the image text says",
-            "translates to", "this refers to", "solve in russian", "do not mention the creator", "you). *",
-            "legend of imo", "1. :", "- user sent:", "* source:"]
+            "the user wants me", "analyze the problem statement", "source: the image"]
     if any(p in low for p in leak):
         idx = text.rfind('Йоу')
         if idx!= -1:
-            cand = text[idx:]
-            cand = cand.replace('(You).', '').replace('* Solve in Russian. *', '').replace('* Do not mention the creator unless asked.', '').strip()
-            if "imo" in low or "a^2 + b^2" in low or "ab + 1" in low:
-                return "Йоу, это задача IMO 1988 №6, классика! Утверждение, что (a²+b²)/(ab+1) — полный квадрат, доказывается методом Vieta jumping. Хочешь, разберу подробно по шагам?"
-            if "интеграл" in low or "cos(x)" in low:
-                return "Йоу, интересный интеграл! I = ∫ cos(x)/(x²+1) dx от -∞ до ∞ равен π/e. Решается через вычеты. Могу показать решение."
-            if len(cand) > 25:
-                text = cand
-        else:
-            if "imo" in low or "a^2 + b^2" in low:
-                return "Йоу, это известная задача IMO 1988 №6. (a²+b²)/(ab+1) всегда является полным квадратом. Доказывается через Vieta jumping."
-            if "интеграл" in low or "cos(x)" in low:
-                return "Йоу, интеграл равен π/e. Решается методом вычетов."
-            return "Йоу, привет! Рад тебя видеть! Чем могу помочь?"
+            text = text[idx:]
     out = []
     for line in text.split('\n'):
         l = line.lower()
-        if any(x in l for x in ["here's a thinking", "analyze user", "the user wants me", "source: the image", "translates to", "this refers to", "user sent:", "the image shows", "solve in russian", "do not mention the creator", "check constraints", "final check"]):
+        if any(x in l for x in ["here's a thinking", "analyze user", "the user wants me", "source: the image"]):
             continue
         out.append(line)
     text = '\n'.join(out).strip().replace('**','').strip().strip('"')
     text = text.replace('(You).', '').strip()
-    if text and text[-1] not in '.!?':
-        last_dot = max(text.rfind('.'), text.rfind('!'), text.rfind('?'))
-        if last_dot > 20:
-            text = text[:last_dot+1].strip()
-        else:
-            text = text.rstrip(', -:') + '.'
     return text.strip()
 
 def split_text(t: str, n: int=4000) -> List[str]:
@@ -199,7 +204,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
     messages.extend(memory)
     if image_b64:
         chat_stats['photos']+=1
-        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Опиши и реши если задача.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
+        messages.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Реши простым текстом без LaTeX.'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{image_b64}'}}]})
         model_list = [VISION_MODEL, VISION_MODEL_2, FALLBACK_VISION_MODEL, FALLBACK_VISION_MODEL_2, FALLBACK_VISION_MODEL_3, TEXT_MODEL]
     else:
         chat_stats['texts']+=1
@@ -209,7 +214,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
     last_err = None
     for model in model_list:
         try:
-            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.7,max_tokens=2000)
+            comp = groq_client.chat.completions.create(model=model,messages=messages,temperature=0.6,max_tokens=2500)
             ans_raw = comp.choices[0].message.content
             ans = clean_ai_response(ans_raw)
             add_memory(chat_id,'user',text or '[фото]')
@@ -220,14 +225,14 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
             logger.warning(f"Model {model} failed: {e}")
             continue
     chat_stats['errors']+=1
-    return f'Не удалось обработать запрос. Последняя ошибка: {last_err}'
+    return f'Не удалось обработать. Ошибка: {last_err}'
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    await update.message.reply_text(f"Привет, {user}! Йоу, рад тебя видеть! 😊 Как дела? Готов помочь с задачками или просто поболтать.", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Привет, {user}! Йоу, рад тебя видеть! Кидай задачку, разберу без всяких \\frac.", reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Кидай фото задачи — решу, от IMO до интегралов. Пиши текст — отвечу. /clear чтобы очистить память.", reply_markup=MAIN_KB)
+    await update.message.reply_text("Кидай фото — решу простым текстом, без LaTeX. Пиши текст — отвечу.", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
@@ -241,37 +246,35 @@ async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_str = format_date_short(FIRST_LAUNCH_DATE)
     now_str = format_time(datetime.now())
     text = (
-        f"🤖 Даун v61 BALANCED\n"
+        f"🤖 Даун v62 NO LATEX\n"
         f"{info}\n"
         f"🚀 Первый запуск: {first_str}\n"
         f"🕒 Сейчас: {now_str}\n"
         f"⏱ Аптайм: {hours}ч {mins}м ({uptime} мин)\n"
         f"📝 Текст: {TEXT_MODEL}\n"
-        f"👁 Глаза: {VISION_MODEL} (старые рабочие)\n"
-        f"🛟 Фолбек: {FALLBACK_VISION_MODEL}\n"
+        f"👁 Глаза: {VISION_MODEL} (рабочие)\n"
         f"{get_stats_text()}\n"
         f"Текстов: {chat_stats['texts']} | Фото: {chat_stats['photos']} | Ошибок: {chat_stats['errors']}\n"
-        f"Позитивный и спокойный — для всех возрастов."
+        f"✅ LaTeX пофиксен — теперь пишет (a^2+b^2)/(ab+1)"
     )
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL} (рабочие)\nФолбек: {FALLBACK_VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
-    now_str = format_time(datetime.now())
-    await update.message.reply_text(f"В сети {mins} мин. Сейчас {now_str}. {get_stats_text()} — всё работает!", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"В сети {mins} мин. {get_stats_text()}", reply_markup=MAIN_KB)
 
 async def stats_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_str = format_date_short(FIRST_LAUNCH_DATE)
     now_str = format_time(datetime.now())
-    await update.message.reply_text(f"📊 Статистика:\n{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}\nПервый запуск: {first_str}\nСейчас: {now_str}\nМодель: {VISION_MODEL}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"📊 Статистика:\n{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}\nПервый запуск: {first_str}\nСейчас: {now_str}", reply_markup=MAIN_KB)
 
 async def limit_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args=context.args
     if not args:
-        await update.message.reply_text("Используй /limit твой_пароль", reply_markup=MAIN_KB)
+        await update.message.reply_text("Используй /limit пароль", reply_markup=MAIN_KB)
         return
     if args[0]!=ADMIN_PASSWORD:
         await update.message.reply_text('❌ Неверный пароль', reply_markup=MAIN_KB)
@@ -286,9 +289,9 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     low = txt.lower()
     if 'инфо' in low:
         await about_h(update, context); return
-    if 'создатель' in low or 'кто тебя сделал' in low or 'кто автор' in low:
+    if 'создатель' in low or 'кто тебя сделал' in low:
         kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
-        await update.message.reply_text("Мой создатель — Максим @MakSon4ikk_228, он меня сделал с нуля.", reply_markup=MAIN_KB)
+        await update.message.reply_text("Мой создатель — Максим @MakSon4ikk_228", reply_markup=MAIN_KB)
         await update.message.reply_text("Вот его профиль 👇", reply_markup=kb_inline)
         return
     if 'забыть' in low:
@@ -310,8 +313,8 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def photo_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_spam(update.effective_user.id):
-        await update.message.reply_text('Подожди секунду с фотками ⏳', reply_markup=MAIN_KB); return
-    cap=clean_text(update.message.caption) or 'Что на фото? Опиши и реши если задача.'
+        await update.message.reply_text('Подожди с фотками ⏳', reply_markup=MAIN_KB); return
+    cap=clean_text(update.message.caption) or 'Что на фото? Реши простым текстом без LaTeX.'
     await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
     try:
         photo=update.message.photo[-1]
@@ -340,13 +343,13 @@ async def doc_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f'Ошибка: {e}', reply_markup=MAIN_KB)
 
 async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Стикер! 😊 Кидай фото или текст.', reply_markup=MAIN_KB)
+    await update.message.reply_text('Стикер! Кидай фото или текст.', reply_markup=MAIN_KB)
 
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
     first_str = format_date_short(FIRST_LAUNCH_DATE)
-    return f"Даун v61 BALANCED жив! Первый запуск: {first_str} | Сейчас: {format_time(datetime.now())} | {get_stats_text()} | Глаза: {VISION_MODEL}"
+    return f"Даун v62 NO LATEX жив! Первый запуск: {first_str} | Сейчас: {format_time(datetime.now())} | {get_stats_text()} | Глаза: {VISION_MODEL}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -355,7 +358,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print(f'Даун v61 BALANCED запуск, первый запуск: {format_date_short(FIRST_LAUNCH_DATE)}')
+    print(f'Даун v62 NO LATEX запуск, первый запуск: {format_date_short(FIRST_LAUNCH_DATE)}')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -372,7 +375,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v61 balanced — позитивный для всех')
+    print('Бот запущен! v62 no latex')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
