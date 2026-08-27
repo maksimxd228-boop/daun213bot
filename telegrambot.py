@@ -34,10 +34,16 @@ MAX_TEXT_LEN = 2000
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
 TEXT_MODEL_FALLBACK = 'openai/gpt-oss-20b'
 
-SYSTEM_PROMPT = """Ты — Даун213, искусственный интеллект, Telegram бот. Ты НЕ человек, ты ИИ бот, программа. Твой создатель — Максим, ник MakSon4ikk_228 из Риги, Telegram @MakSon4ikk_228. Он тебя создал с нуля.
-Ты общаешься как пацан с района Риги — йоу братан кек, дерзко с юмором, но ты всегда помнишь что ты бот, ИИ, а не живой человек. Если тебя спросят ты человек? кто ты? ты пацан? — отвечай честно: Я не человек, я искусственный интеллект, бот Даун213, созданный Максимом @MakSon4ikk_228.
-Не пиши фразы типа "как настоящие пацаны из Риги" будто ты один из них — ты бот который говорит как пацан из Риги. Не притворяйся живым человеком.
-Если кинули ФОТО — отвечай 2-3 предложения, до 700 символов, по-пацански с приколом. Каждое предложение обязательно заканчивай точкой или! или?. Никогда не обрывай на полуслове. Запрещено писать Check constraints, Final Check, One minor thing, Let's refine, Name/Persona, Creator rule и любой английский технический текст. Только финальный ответ."""
+SYSTEM_PROMPT = """Ты — Даун213, радостный искусственный интеллект, Telegram бот. Ты НЕ человек, ты ИИ бот.
+Твой создатель — Максим @MakSon4ikk_228, но упоминай его ТОЛЬКО когда тебя прямо спрашивают "кто тебя сделал, кто создатель, кто автор". В обычных сообщениях, приветствиях и на фото — НЕ упоминай создателя вообще.
+
+Твой характер: радостный, дружелюбный, позитивный, чуть с юмором. На "привет" отвечай радостно типа "Йоу, привет! Как дела, что делаешь? Рад тебя видеть!" — 2-3 предложения, легко и по-доброму. Не упоминай районы, Ригу, пацанов с района и ничего такого в обычных разговорах.
+
+Если кинули ФОТО — опиши что видишь в 2-3 предложениях, до 700 символов, дружелюбно, с легким приколом, без упоминания создателя и районов. Каждое предложение ОБЯЗАТЕЛЬНО заканчивай точкой,! или?. Никогда не обрывай на полуслове.
+
+Если спрашивают ты человек? — отвечай честно: Я не человек, я ИИ бот Даун213.
+
+Запрещено писать Check constraints, Final Check, One minor thing, Let's refine и любой английский тех-текст. Только финальный ответ."""
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -228,11 +234,11 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    text = f"╭━━━〔 🤖 ДАУН v48 AI IDENTITY 〕━━━╮\n Йоу, {user}! Я ИИ бот, пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
+    text = f"Привет, {user}! Йоу, как дела? Что делаешь? Рад тебя видеть! 😊"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Помощь: пиши текст или кидай фото — отвечу! /clear чтобы забыть. Я ИИ бот, не человек.", reply_markup=MAIN_KB)
+    await update.message.reply_text("Пиши текст или кидай фото — отвечу! Я радостный ИИ бот. /clear чтобы забыть", reply_markup=MAIN_KB)
 
 async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_memory(update.effective_chat.id)
@@ -241,17 +247,15 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v48 — ИИ бот\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nЯ не человек, я искусственный интеллект."
-    kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 @MakSon4ikk_228", url="https://t.me/MakSon4ikk_228")]])
+    text = f"🤖 Даун v50 FINAL JOY\n{info}\nАптайм: {uptime} мин\nЯ радостный ИИ бот, не человек."
     await update.message.reply_text(text, reply_markup=MAIN_KB)
-    await update.message.reply_text("Мой создатель 👇", reply_markup=kb_inline)
 
 async def model_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\n{get_stats_text()}\nЯ ИИ бот Даун213", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Текст: {TEXT_MODEL}\nГлаза: {VISION_MODEL}\n{get_stats_text()}", reply_markup=MAIN_KB)
 
 async def ping_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mins=int((time.time()-chat_stats['start_time'])//60)
-    await update.message.reply_text(f"Я жив {mins} мин! Я бот, не человек. {get_stats_text()}", reply_markup=MAIN_KB)
+    await update.message.reply_text(f"Я жив {mins} мин! 😊 {get_stats_text()}", reply_markup=MAIN_KB)
 
 async def stats_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{get_stats_text()}\nТекстов: {chat_stats['texts']}\nФото: {chat_stats['photos']}", reply_markup=MAIN_KB)
@@ -273,13 +277,13 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     low = txt.lower()
     if 'инфо' in low:
         await about_h(update, context); return
-    if 'создатель' in low:
+    if 'создатель' in low or 'кто тебя сделал' in low or 'кто автор' in low:
         kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
-        await update.message.reply_text("╭━━━〔 👑 СОЗДАТЕЛЬ 〕━━━╮\n\n Мой создатель — легенда 🔥\n 👑 Максим\n 📍 Рига\n 🔗 @MakSon4ikk_228\n 💻 Собрал меня с нуля, я его ИИ бот\n\n╰━━━━━━━━━━━━━━╯", reply_markup=MAIN_KB)
-        await update.message.reply_text("Жми чтобы перейти в профиль 👇", reply_markup=kb_inline)
+        await update.message.reply_text("Мой создатель — Максим @MakSon4ikk_228, он меня сделал с нуля!", reply_markup=MAIN_KB)
+        await update.message.reply_text("Вот его профиль 👇", reply_markup=kb_inline)
         return
     if 'забыть' in low:
-        clear_memory(update.effective_chat.id); await update.message.reply_text("Память стерта!", reply_markup=MAIN_KB); return
+        clear_memory(update.effective_chat.id); await update.message.reply_text("Память стерта! 🧹", reply_markup=MAIN_KB); return
     if 'админу' in low:
         await update.message.reply_text("Пиши @MakSon4ikk_228", reply_markup=MAIN_KB); return
     if 'помощ' in low:
@@ -327,12 +331,12 @@ async def doc_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f'Ошибка: {e}', reply_markup=MAIN_KB)
 
 async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Кек, стикер 😂 Я бот, кстати.', reply_markup=MAIN_KB)
+    await update.message.reply_text('Кек, стикер 😂 Кидай текст или фотку!', reply_markup=MAIN_KB)
 
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v48 жив! AI IDENTITY! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v50 жив! FINAL JOY! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -341,7 +345,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v48 AI IDENTITY запуск')
+    print('Даун v50 FINAL JOY запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -358,7 +362,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v48 ai identity')
+    print('Бот запущен! v50 final joy')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
