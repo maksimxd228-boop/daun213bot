@@ -118,14 +118,40 @@ def clean_ai_response(text: str) -> str:
     if not text:
         return text
     if '</think>' in text:
-        text = text.split('</think>')[-1].strip()
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r'<think>', '', text, flags=re.IGNORECASE)
-    text = text.strip()
-    if 'Final Check' in text and 'Йоу' in text:
-        idx = text.find('Йоу')
-        if idx!= -1:
-            text = text[idx:]
+        text = text.split('</think>')[-1]
+    text = text.replace('<think>', '').replace('</think>', '')
+    pos = text.rfind('Йоу,')
+    if pos == -1:
+        pos = text.rfind('Йоу')
+    if pos!= -1:
+        cand = text[pos:]
+        markers = ['\n4. **Check', '\n5. **', '**Check Against', '**Final Check', 'One minor thing', "Let's refine", 'All good. Output matches', '**Name/Persona:**', '**Creator rule:**']
+        cut = len(cand)
+        for m in markers:
+            idx = cand.find(m)
+            if idx > 20 and idx < cut:
+                cut = idx
+        cand = cand[:cut].strip().strip('"').strip("'")
+        if len(cand) > 30:
+            text = cand
+    out_lines = []
+    for line in text.split('\n'):
+        if 'Check Against Constraints' in line: continue
+        if 'Final Check against Constraints' in line: continue
+        if 'One minor thing:' in line: continue
+        if "Let's refine it to be more" in line: continue
+        if 'Output matches draft' in line: continue
+        if '**Name/Persona:**' in line: continue
+        if '**Creator rule:**' in line: continue
+        if '**Photo description detailed' in line: continue
+        if '**Language:**' in line: continue
+        if '**Tone:**' in line: continue
+        if '**No extra fluff' in line: continue
+        if 'Not triggered' in line and len(line) < 100: continue
+        if line.strip().startswith('- **') and ('Persona' in line or 'Memory:' in line or 'Task:' in line or 'Screen:' in line): continue
+        out_lines.append(line)
+    text = '\n'.join(out_lines).strip()
+    text = text.strip('"')
     return text
 
 def split_text(t: str, n: int=4000) -> List[str]:
@@ -183,7 +209,7 @@ async def ask_groq(chat_id: int, text: str, image_b64: Optional[str]=None) -> st
 
 async def start_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.first_name
-    text = f"╭━━━〔 🤖 ДАУН v41 NO LEAK 〕━━━╮\n Йоу, {user}! Я пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
+    text = f"╭━━━〔 🤖 ДАУН v42 ULTRA CLEAN 〕━━━╮\n Йоу, {user}! 👋 Я пофикшен!\n Создатель — Максим @MakSon4ikk_228!"
     await update.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def help_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,7 +222,7 @@ async def clear_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_system_info()
     uptime = int((time.time() - chat_stats['start_time'])//60)
-    text = f"🤖 Даун v41\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
+    text = f"🤖 Даун v42\n👑 Создатель: Максим @MakSon4ikk_228\n{info}\nАптайм: {uptime} мин\nЧатов: {len(chat_memories)}\nТекст: gpt-oss-120B\nГлаза: qwen3.6-27b"
     kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 @MakSon4ikk_228", url="https://t.me/MakSon4ikk_228")]])
     await update.message.reply_text(text, reply_markup=MAIN_KB)
     await update.message.reply_text("Мой создатель 👇", reply_markup=kb_inline)
@@ -230,7 +256,7 @@ async def text_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await about_h(update, context); return
     if 'создатель' in low:
         kb_inline = InlineKeyboardMarkup([[InlineKeyboardButton("👑 Профиль создателя", url="https://t.me/MakSon4ikk_228")]])
-        await update.message.reply_text("╭━━━〔 👑 СОЗДАТЕЛЬ 〕━━━╮\n\n Мой создатель — легенда 🔥\n 👑 Максим\n 📍 Рига\n 🔗 @MakSon4ikk_228\n 💻 Собрал меня с нуля\n\n╰━━━━━━━━━━━━━━╯", reply_markup=MAIN_KB)
+        await update.message.reply_text("╭━━━〔 👑 СОЗДАТЕЛЬ 〕━━━╮\n\n Мой создатель — легенда 🔥\n 👑 Максим\n 📍 Рига, Латвия\n 🔗 @MakSon4ikk_228\n 💻 Собрал меня с нуля\n 🚀 Даун213 — его проект\n\n╰━━━━━━━━━━━━━━╯", reply_markup=MAIN_KB)
         await update.message.reply_text("Жми чтобы перейти в профиль 👇", reply_markup=kb_inline)
         return
     if 'забыть' in low:
@@ -287,7 +313,7 @@ async def sticker_h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v41 жив! NO THINK LEAK! {format_time(datetime.now())} {get_stats_text()}"
+    return f"Даун v42 жив! ULTRA CLEAN! {format_time(datetime.now())} {get_stats_text()}"
 @app_flask.route('/health')
 def health():
     return 'OK',200
@@ -295,10 +321,8 @@ def health():
 def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
-start_time=time.time()
-
 def main():
-    print('Даун v41 NO LEAK - clean think - запуск')
+    print('Даун v42 ULTRA CLEAN NO LEAK запуск')
     threading.Thread(target=run_flask,daemon=True).start()
     if 'ВСТАВЬ' in TELEGRAM_TOKEN:
         while True: time.sleep(60)
@@ -315,7 +339,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO,photo_h))
     application.add_handler(MessageHandler(filters.Document.IMAGE,doc_h))
     application.add_handler(MessageHandler(filters.Sticker.ALL,sticker_h))
-    print('Бот запущен! v41 no leak')
+    print('Бот запущен! v42 ultra clean')
     application.run_polling(drop_pending_updates=True)
 
 if __name__=='__main__':
