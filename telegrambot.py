@@ -50,6 +50,7 @@ MAX_HIST=16
 MAX_CHATS=150
 MAX_LEN=2000
 ADMIN_PASS=os.getenv('ADMIN_PASSWORD') or 'MakSon4ikk_228'
+ADMIN_CHAT_ID=int(os.getenv('ADMIN_CHAT_ID','0') or 0) or None
 TEXT_FALL='openai/gpt-oss-20b'
 FIRST=datetime(2026,8,26,14,25,0)
 yoy={'count':0}
@@ -367,6 +368,7 @@ async def image_h(update,context):
         await update.message.reply_text("Не удалось.",reply_markup=MAIN_KB)
 
 async def limit_h(update,context):
+    global ADMIN_CHAT_ID
     a=context.args
     if not a:
         await update.message.reply_text("Используй /limit пароль",reply_markup=MAIN_KB)
@@ -374,9 +376,10 @@ async def limit_h(update,context):
     if a[0]!=ADMIN_PASS:
         await update.message.reply_text('❌ Неверный пароль',reply_markup=MAIN_KB)
         return
+    ADMIN_CHAT_ID=update.effective_chat.id
     s=get_stats()
     t=fmt_full()
-    await update.message.reply_text(f"Всего: {stats['total']}\n{s}\n{t}",reply_markup=MAIN_KB)
+    await update.message.reply_text(f"✅ Админ ID сохранен: {ADMIN_CHAT_ID}\nВсего: {stats['total']}\n{s}\n{t}",reply_markup=MAIN_KB)
 
 async def text_h(update,context):
     if spam(update.effective_user.id):
@@ -447,8 +450,29 @@ async def text_h(update,context):
         context.user_data['awaiting']=False
         await update.message.reply_text("Память очищена!",reply_markup=MAIN_KB)
         return
+    # Если юзер пишет баг-репорт админу
+    if context.user_data.get('awaiting_admin'):
+        context.user_data['awaiting_admin']=False
+        user=update.effective_user
+        uname=f"@{user.username}" if user.username else f"{user.first_name} (id:{user.id})"
+        bug_text=txt
+        # отправляем админу
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"📩 Баг-репорт от {uname}:\n\n{bug_text}\n\nChatID: {update.effective_chat.id}")
+                await update.message.reply_text("✅ Отправил админу! Спасибо за репорт 👑",reply_markup=MAIN_KB)
+            except Exception as e:
+                await update.message.reply_text(f"❌ Не смог отправить админу: {e}\nНапиши напрямую @MakSon4ikk_228",reply_markup=MAIN_KB)
+        else:
+            btn=InlineKeyboardButton("👑 Админ",url="https://t.me/MakSon4ikk_228")
+            kb=InlineKeyboardMarkup([[btn]])
+            await update.message.reply_text(f"Админ пока не установил ID. Перешли ему это вручную:\n{bug_text}",reply_markup=MAIN_KB)
+            await update.message.reply_text("Жми 👇",reply_markup=kb)
+        return
+
     if 'админу' in low:
-        await update.message.reply_text("Напиши @MakSon4ikk_228",reply_markup=MAIN_KB)
+        context.user_data['awaiting_admin']=True
+        await update.message.reply_text("✍️ Напиши сообщение про баг — я перешлю админу @MakSon4ikk_228 (следующее сообщение уйдет ему)",reply_markup=MAIN_KB)
         return
     if 'помощ' in low:
         await help_h(update,context)
