@@ -73,7 +73,12 @@ def fmt_dt(dt):
 def fmt_short(dt):
     return dt.strftime('%H:%M %d.%m.%Y')
 
-SYS="Ты — Даун213. Создатель Максим @MakSon4ikk_228. Йоу редко."
+SYS="""Ты — Даун213, бот созданный Максимом @MakSon4ikk_228.
+ТВОЯ ЛИЧНОСТЬ: Ты Даун213, а не ChatGPT, не GPT, не OpenAI.
+ЗАПРЕЩЕНО говорить что ты ChatGPT или что тебя сделала OpenAI.
+Если спрашивают кто ты — отвечай: Я Даун213, меня создал Максим @MakSon4ikk_228.
+Если говорят что ты ChatGPT — отрицай: Нет, я Даун213.
+Говори на русском, дружелюбно, с легким сленгом. Йоу очень редко."""
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -177,6 +182,13 @@ def clean_ai(t):
     if '</think>' in t:
         t=t.split('</think>')[-1]
     t=fix_latex(t.replace('<think>','').replace('</think>',''))
+    low=t.lower()
+    if 'chatgpt' in low and ('я —' in low or 'я -' in low or 'я являюсь' in low):
+        return "Я Даун213, меня создал Максим @MakSon4ikk_228. Я не ChatGPT. Чем помочь?"
+    if 'разработан компанией openai' in low or 'создан компанией openai' in low or 'developed by openai' in low:
+        return "Я Даун213, меня создал Максим @MakSon4ikk_228. Чем помочь?"
+    if 'я не являюсь' in low and 'даун213' in low:
+        return "Я Даун213, меня создал Максим @MakSon4ikk_228. Чем помочь?"
     yoy['count']+=1
     if yoy['count']%5!=0:
         if t.strip().lower().startswith('йоу'):
@@ -317,7 +329,27 @@ async def start_h(update,context):
     await update.message.reply_text(f"Привет, {u}! Жми 🎨 Картинка!",reply_markup=MAIN_KB)
 
 async def help_h(update,context):
-    await update.message.reply_text("🎨 Картинка -> пиши 'кота' или 'ртх 5090'",reply_markup=MAIN_KB)
+    txt=(
+        "❓ Помощь по Даун213:\n\n"
+        "🎨 Картинка — генерация картинок\n"
+        "• Нажми 🎨 Картинка или напиши 'Нарисуй кота' / 'Нарисуй носорога' / 'ртх 5090'\n"
+        "• Можно: /image котик в очках\n\n"
+        "🧠 Текст и фото:\n"
+        "• Просто пиши вопрос — отвечаю\n"
+        "• Кидай фото с подписью — разберу что на фото\n"
+        "• Решаю примеры: 2+2*2\n\n"
+        "🔧 Команды:\n"
+        "ℹ️ Инфо — инфа о боте и аптайм\n"
+        "👑 Создатель — кто меня сделал\n"
+        "🧹 Забыть — очистить память чата\n"
+        "📩 Админу — написать баг-репорт админу (пересылает мне)\n"
+        "🛠️ Модель — какая нейронка сейчас\n"
+        "🏓 Пинг — жив ли бот\n"
+        "📊 Стата — статистика\n"
+        "🕒 Время — время Рига/МСК/UTC\n\n"
+        "👑 Создатель: @MakSon4ikk_228"
+    )
+    await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def clear_h(update,context):
     clear_mem(update.effective_chat.id)
@@ -330,7 +362,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v69 FIXED RHINO\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v70 FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -533,7 +565,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v69 FIXED RHINO жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v70 FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -543,7 +575,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v69 FIXED RHINO запуск')
+    print('Даун v70 FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
