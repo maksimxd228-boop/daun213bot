@@ -4,6 +4,7 @@ import threading, platform, re, random
 import ast, operator, urllib.request
 import urllib.parse
 from io import BytesIO
+from PIL import Image
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
 from telegram import Update, ReplyKeyboardMarkup
@@ -261,14 +262,15 @@ def gen_img(prompt):
         final = enhance(prompt)
 
     try:
-        import urllib.parse, random, urllib.request
-        from io import BytesIO
+        import urllib.parse
+        import random
+        import urllib.request
         safe=urllib.parse.quote(final[:600])
         seed=random.randint(100000,9999999)
         urls=[
             f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed}&model=flux&enhance=false&nofeed=true",
-            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+1}&model=turbo&enhance=false",
-            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+2}&model=flux&enhance=false",
+            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+1}&model=turbo&enhance=false&nofeed=true",
+            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+2}&model=flux&enhance=false&nofeed=true",
         ]
         for url in urls:
             try:
@@ -276,12 +278,24 @@ def gen_img(prompt):
                 with urllib.request.urlopen(req,timeout=70) as r:
                     d=r.read()
                     if len(d)>20000:
-                        return BytesIO(d)
+                        try:
+                            bio=BytesIO(d)
+                            img=Image.open(bio).convert('RGB')
+                            w,h=img.size
+                            ch=int(h*0.93)
+                            img=img.crop((0,0,w,ch))
+                            out=BytesIO()
+                            img.save(out, format='JPEG', quality=95)
+                            out.seek(0)
+                            return out
+                        except:
+                            return BytesIO(d)
             except:
                 continue
     except:
         pass
     return None
+
 
 
 async def ask(cid,text,b64img=None):
@@ -362,7 +376,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v70 FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v71 NO-WATERMARK FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -565,7 +579,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v70 FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v71 NO-WATERMARK FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -575,7 +589,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v70 FIXED HELP+ANTIGPT запуск')
+    print('Даун v71 NO-WATERMARK FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
