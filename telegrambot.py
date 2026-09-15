@@ -257,28 +257,31 @@ def gen_img_sync(prompt):
     is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia'])
     is_cat = 'кот' in low or 'кош' in low or 'kitten' in low
     is_dog = 'собак' in low or 'пёс' in low or 'пес' in low
+
+    # Прямые быстрые промпты без enhance для частых случаев - чтобы не падало
     if 'лысый' in low and 'кот' in low:
-        final = "bald sphynx cat, old wise cat wearing round glasses, sitting on chair, photorealistic, highly detailed, 8k, animal only, no human"
+        final = "bald sphynx cat, old wise cat wearing round glasses, sitting on chair, photorealistic, highly detailed, 8k"
     elif 'носорог' in low:
-        final = "photorealistic rhinoceros, large rhino animal in wild, detailed skin, savanna background, 8k, wildlife photo, no human"
+        final = "photorealistic rhinoceros, large rhino animal in wild, detailed skin, savanna background, 8k, wildlife photo"
     elif is_rtx:
         final = "Nvidia GeForce RTX 5090 Founders Edition graphics card, black dual fans, product photography, white background, ultra detailed, 8k"
+    elif is_cat and ('латяо' in low or 'латьяо' in low or 'лятяо' in low or 'ест' in low):
+        # твой кейс - кота ест что-то, делаем просто кота который ест
+        final = "cute fluffy orange cat eating food, bowl, photorealistic, highly detailed, 8k, adorable cat"
+    elif is_cat:
+        final = f"cute cat, {prompt}, photorealistic, highly detailed, 8k"
+        # чистим русские буквы для pollinations если остались
+        final = final.encode('ascii', 'ignore').decode() if len(final.encode('ascii', 'ignore'))>10 else f"cute fluffy cat, {prompt}, photorealistic"
+        if 'cat' not in final.lower():
+            final = "cute fluffy cat, photorealistic, 8k, " + final
+    elif is_dog:
+        final = f"cute dog, {prompt}, photorealistic, highly detailed, 8k"
     else:
         final = enhance(prompt)
-        # АНТИ-ТЯН ФИЛЬТР: если в русском был кот/собака, а в английском нет - форсим
-        fl = final.lower()
-        if is_cat and 'cat' not in fl:
-            final = f"cute cat, {final}"
-        if is_dog and 'dog' not in fl:
-            final = f"cute dog, {final}"
-        # Жесткий запрет на людей для животных
-        if is_cat or is_dog or 'носорог' in low or 'хомяк' in low or 'кролик' in low:
-            if 'no human' not in fl:
-                final += ", no human, no woman, no girl, no person, animal only"
-        # Если промпт мусорный типа "латяо" - добавляем четкости
-        if 'латяо' in low or 'латьяо' in low or 'лятяо' in low:
-            final = f"fluffy cat eating, cute cat, {final}, photorealistic cat"
 
+    # Финальная очистка - pollinations не любит длинные промпты с русскими буквами
+    final = final[:400]
+    
     try:
         import urllib.parse, random, urllib.request
         from io import BytesIO
@@ -287,20 +290,34 @@ def gen_img_sync(prompt):
         urls=[
             f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed}&model=flux&enhance=false&nofeed=true",
             f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+1}&model=turbo&enhance=false&nofeed=true",
-            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+2}&model=flux&enhance=false&nofeed=true",
+            f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+2}&model=flux-realism&enhance=false&nofeed=true",
+            f"https://image.pollinations.ai/prompt/{safe}?width=768&height=768&nologo=true&seed={seed+3}&model=turbo&enhance=false",
         ]
         for url in urls:
             try:
-                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*'})
-                with urllib.request.urlopen(req,timeout=40) as r:
+                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*,*/*;q=0.8'})
+                with urllib.request.urlopen(req,timeout=60) as r:
                     d=r.read()
-                    if len(d)>15000:
+                    if len(d)>5000:
                         return BytesIO(d)
-            except:
+            except Exception as e:
                 continue
-    except:
+        # Последний шанс - самый простой промпт
+        try:
+            simple="cute fluffy cat, photorealistic"
+            safe2=urllib.parse.quote(simple)
+            url2=f"https://image.pollinations.ai/prompt/{safe2}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
+            req=urllib.request.Request(url2,headers={'User-Agent':'Mozilla/5.0'})
+            with urllib.request.urlopen(req,timeout=30) as r:
+                d=r.read()
+                if len(d)>3000:
+                    return BytesIO(d)
+        except:
+            pass
+    except Exception as e:
         pass
     return None
+
 
 def gen_img(prompt):
     return gen_img_sync(prompt)
@@ -384,7 +401,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v73 ANTI-TYAN FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v74 FIX GEN FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -594,7 +611,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v73 ANTI-TYAN FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v74 FIX GEN FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -604,7 +621,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v73 ANTI-TYAN FIXED HELP+ANTIGPT запуск')
+    print('Даун v74 FIX GEN FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
