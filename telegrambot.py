@@ -255,14 +255,30 @@ async def gen_img_async(prompt):
 def gen_img_sync(prompt):
     low=prompt.lower()
     is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia'])
+    is_cat = 'кот' in low or 'кош' in low or 'kitten' in low
+    is_dog = 'собак' in low or 'пёс' in low or 'пес' in low
     if 'лысый' in low and 'кот' in low:
-        final = "bald sphynx cat, old wise cat wearing round glasses, sitting on chair, photorealistic, highly detailed, 8k"
+        final = "bald sphynx cat, old wise cat wearing round glasses, sitting on chair, photorealistic, highly detailed, 8k, animal only, no human"
     elif 'носорог' in low:
-        final = "photorealistic rhinoceros, large rhino animal in wild, detailed skin, savanna background, 8k, wildlife photo"
+        final = "photorealistic rhinoceros, large rhino animal in wild, detailed skin, savanna background, 8k, wildlife photo, no human"
     elif is_rtx:
         final = "Nvidia GeForce RTX 5090 Founders Edition graphics card, black dual fans, product photography, white background, ultra detailed, 8k"
     else:
         final = enhance(prompt)
+        # АНТИ-ТЯН ФИЛЬТР: если в русском был кот/собака, а в английском нет - форсим
+        fl = final.lower()
+        if is_cat and 'cat' not in fl:
+            final = f"cute cat, {final}"
+        if is_dog and 'dog' not in fl:
+            final = f"cute dog, {final}"
+        # Жесткий запрет на людей для животных
+        if is_cat or is_dog or 'носорог' in low or 'хомяк' in low or 'кролик' in low:
+            if 'no human' not in fl:
+                final += ", no human, no woman, no girl, no person, animal only"
+        # Если промпт мусорный типа "латяо" - добавляем четкости
+        if 'латяо' in low or 'латьяо' in low or 'лятяо' in low:
+            final = f"fluffy cat eating, cute cat, {final}, photorealistic cat"
+
     try:
         import urllib.parse, random, urllib.request
         from io import BytesIO
@@ -368,7 +384,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v72 FAST FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v73 ANTI-TYAN FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -578,7 +594,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v72 FAST FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v73 ANTI-TYAN FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -588,7 +604,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v72 FAST FIXED HELP+ANTIGPT запуск')
+    print('Даун v73 ANTI-TYAN FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
