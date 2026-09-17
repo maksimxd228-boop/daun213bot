@@ -337,10 +337,30 @@ async def ask(cid,text,b64img=None):
     utc,riga,msk=get_time()
     ti=riga.strftime('%H:%M:%S %d.%m.%Y')
     info=f"[Время: Рига {ti}]"
-    msgs=[{'role':'system','content':SYS+"\n"+info}]
-    msgs.extend(mem)
+    def sanitize_mems(mems_list, for_vision=False):
+        out=[]
+        for m in mems_list:
+            c=m.get('content','')
+            if isinstance(c, list):
+                if for_vision:
+                    out.append(m)
+                else:
+                    txt=""
+                    for part in c:
+                        if isinstance(part, dict) and part.get('type')=='text':
+                            txt=part.get('text','')
+                            break
+                    if not txt:
+                        txt="[фото]"
+                    out.append({'role':m.get('role','user'),'content':txt})
+            else:
+                out.append(m)
+        return out
     if b64img:
         stats['photos']+=1
+        clean_mem=sanitize_mems(mem, for_vision=True)
+        msgs=[{'role':'system','content':SYS+"\n"+info}]
+        msgs.extend(clean_mem)
         msgs.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото?'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
         models=[VISION_MODEL,VISION_MODEL2,FALL1,FALL2,FALL3,FALL4,TEXT_MODEL]
     else:
@@ -353,6 +373,9 @@ async def ask(cid,text,b64img=None):
                     add_mem(cid,'assistant',ans)
                     return ans
         stats['texts']+=1
+        clean_mem=sanitize_mems(mem, for_vision=False)
+        msgs=[{'role':'system','content':SYS+"\n"+info}]
+        msgs.extend(clean_mem)
         msgs.append({'role':'user','content':text})
         models=[TEXT_MODEL,TEXT_FALL,FALL1]
     last="err"
@@ -364,11 +387,12 @@ async def ask(cid,text,b64img=None):
             add_mem(cid,'assistant',ans)
             return ans
         except Exception as e:
-            last=str(e)[:200]
+            last=str(e)[:300]
             logger.error(f"Groq model {m} fail: {e}")
             continue
     stats['errs']+=1
-    return f'Ошибка: {last[:150]}'
+    return f'Ошибка: {last[:300]}'
+
 
 
 async def start_h(update,context):
@@ -409,7 +433,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v74 ULTRA-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v75 MEM-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -619,7 +643,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v74 ULTRA-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v75 MEM-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -629,7 +653,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v74 ULTRA-FIX FIXED HELP+ANTIGPT запуск')
+    print('Даун v75 MEM-FIX FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
