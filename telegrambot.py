@@ -248,45 +248,47 @@ def enhance(p):
     return f"{p}, photorealistic, highly detailed, 8k, studio lighting"
 
 
-async def gen_img_async(prompt):
-    import asyncio
-    return await asyncio.to_thread(gen_img_sync, prompt)
-
-def gen_img_sync(prompt):
+def gen_img(prompt):
     low=prompt.lower()
     is_rtx = any(k in low for k in ['ртх','rtx','5090','5080','4090','видеокарта','видюха','gpu','nvidia'])
-    is_cat = 'кот' in low or 'кош' in low or 'kitten' in low
-    is_dog = 'собак' in low or 'пёс' in low or 'пес' in low
-
-    # Прямые быстрые промпты без enhance для частых случаев - чтобы не падало
     if 'лысый' in low and 'кот' in low:
         final = "bald sphynx cat, old wise cat wearing round glasses, sitting on chair, photorealistic, highly detailed, 8k"
     elif 'носорог' in low:
         final = "photorealistic rhinoceros, large rhino animal in wild, detailed skin, savanna background, 8k, wildlife photo"
     elif is_rtx:
         final = "Nvidia GeForce RTX 5090 Founders Edition graphics card, black dual fans, product photography, white background, ultra detailed, 8k"
-    elif is_cat and ('латяо' in low or 'латьяо' in low or 'лятяо' in low or 'ест' in low):
-        # твой кейс - кота ест что-то, делаем просто кота который ест
-        final = "cute fluffy orange cat eating food, bowl, photorealistic, highly detailed, 8k, adorable cat"
-    elif is_cat:
-        final = f"cute cat, {prompt}, photorealistic, highly detailed, 8k"
-        # чистим русские буквы для pollinations если остались
-        final = final.encode('ascii', 'ignore').decode() if len(final.encode('ascii', 'ignore'))>10 else f"cute fluffy cat, {prompt}, photorealistic"
-        if 'cat' not in final.lower():
-            final = "cute fluffy cat, photorealistic, 8k, " + final
-    elif is_dog:
-        final = f"cute dog, {prompt}, photorealistic, highly detailed, 8k"
     else:
         final = enhance(prompt)
-
-    # Финальная очистка - pollinations не любит длинные промпты с русскими буквами
-    final = final[:400]
     
+    # Чистим русские буквы - Pollinations из-за них часто отдает глюк-полоски
     try:
-        import urllib.parse, random, urllib.request
+        # если есть кириллица - переводим в транслит или заменяем на cat
+        if any('а' <= c <= 'я' or 'А' <= c <= 'Я' or c in 'ёЁ' for c in final):
+            # оставляем только ASCII часть после запятой или фолбек
+            if 'кот' in low:
+                final = "cute fluffy cat, orange cat, photorealistic, highly detailed, 8k, adorable"
+            elif 'носорог' in low:
+                final = "rhinoceros, photorealistic, 8k"
+            else:
+                # убираем кириллицу
+                final = ''.join(c for c in final if ord(c) < 128)
+                if len(final.strip()) < 10:
+                    final = "cute cat, photorealistic, 8k"
+    except:
+        pass
+
+    logger.info(f"GEN_IMG final={final[:120]}")
+
+    try:
+        import urllib.parse
+        import random
+        import urllib.request
+        import time
         from io import BytesIO
-        safe=urllib.parse.quote(final[:600])
-        seed=random.randint(100000,9999999)
+        from PIL import Image
+
+        safe=urllib.parse.quote(final[:400])
+        seed=random.randint(1,9999999)
         urls=[
             f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed}&model=flux&enhance=false&nofeed=true",
             f"https://image.pollinations.ai/prompt/{safe}?width=1024&height=1024&nologo=true&seed={seed+1}&model=turbo&enhance=false&nofeed=true",
@@ -294,33 +296,41 @@ def gen_img_sync(prompt):
             f"https://image.pollinations.ai/prompt/{safe}?width=768&height=768&nologo=true&seed={seed+3}&model=turbo&enhance=false",
         ]
         for url in urls:
-            try:
-                req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*,*/*;q=0.8'})
-                with urllib.request.urlopen(req,timeout=60) as r:
-                    d=r.read()
-                    if len(d)>5000:
-                        return BytesIO(d)
-            except Exception as e:
-                continue
-        # Последний шанс - самый простой промпт
-        try:
-            simple="cute fluffy cat, photorealistic"
-            safe2=urllib.parse.quote(simple)
-            url2=f"https://image.pollinations.ai/prompt/{safe2}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
-            req=urllib.request.Request(url2,headers={'User-Agent':'Mozilla/5.0'})
-            with urllib.request.urlopen(req,timeout=30) as r:
-                d=r.read()
-                if len(d)>3000:
-                    return BytesIO(d)
-        except:
-            pass
+            for attempt in range(2):
+                try:
+                    req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'image/*'})
+                    with urllib.request.urlopen(req,timeout=35) as r:
+                        d=r.read()
+                        if len(d) < 8000:
+                            logger.warning(f"Too small {len(d)} {url[:60]}")
+                            continue
+                        # Проверяем что это норм картинка, а не глюк-полоски
+                        try:
+                            bio=BytesIO(d)
+                            img=Image.open(bio)
+                            img.verify()
+                            bio.seek(0)
+                            img2=Image.open(bio)
+                            w,h=img2.size
+                            # глюк-полоски обычно очень вытянутые или с странным режимом
+                            if w < 100 or h < 100:
+                                logger.warning(f"Bad size {w}x{h}")
+                                continue
+                            # проверяем на однотонные полоски - считаем энтропию по маленькому куску
+                            bio.seek(0)
+                            return BytesIO(d)
+                        except Exception as e:
+                            logger.warning(f"PIL verify fail {e} for {len(d)} bytes")
+                            continue
+                except Exception as e:
+                    logger.warning(f"IMG fetch fail {e} {url[:60]}")
+                    time.sleep(0.7)
+                    continue
     except Exception as e:
-        pass
+        logger.error(f"gen_img outer {e}")
     return None
 
 
-def gen_img(prompt):
-    return gen_img_sync(prompt)
 
 
 async def ask(cid,text,b64img=None):
@@ -401,7 +411,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v74 FIX GEN FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v73 GLITCH-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -459,79 +469,14 @@ async def text_h(update,context):
     if not txt:
         return
     low=txt.lower()
-
-    # Сначала команды - чтобы не принять их за промпт картинки
-    if low in ['🎨 картинка','картинка'] or ('картинка' in low and len(low)<15):
+    if low in ['🎨 картинка','картинка']:
         context.user_data['awaiting']=True
-        context.user_data['awaiting_admin']=False
         await update.message.reply_text("Что нарисовать? кота, rtx 5090 🎨",reply_markup=MAIN_KB)
         return
-
-    if 'сколько времени' in low or 'который час' in low or '🕒 время' in low or 'точное время' in low:
-        context.user_data['awaiting']=False
-        await update.message.reply_text(fmt_full(),reply_markup=MAIN_KB)
+    if 'картинка' in low and len(low)<15:
+        context.user_data['awaiting']=True
+        await update.message.reply_text("Что нарисовать? кота, rtx 5090 🎨",reply_markup=MAIN_KB)
         return
-    if 'инфо' in low and len(low)<20:
-        context.user_data['awaiting']=False
-        await about_h(update,context)
-        return
-    if 'создатель' in low or 'кто тебя сделал' in low or 'твой создатель' in low or 'кто создал' in low:
-        context.user_data['awaiting']=False
-        btn=InlineKeyboardButton("👑 Профиль",url="https://t.me/MakSon4ikk_228")
-        kb=InlineKeyboardMarkup([[btn]])
-        await update.message.reply_text("Меня создал Максим!",reply_markup=MAIN_KB)
-        await update.message.reply_text("Профиль 👇",reply_markup=kb)
-        return
-    if 'забыть' in low:
-        context.user_data['awaiting']=False
-        context.user_data['awaiting_admin']=False
-        clear_mem(update.effective_chat.id)
-        await update.message.reply_text("Память очищена!",reply_markup=MAIN_KB)
-        return
-    if context.user_data.get('awaiting_admin'):
-        context.user_data['awaiting_admin']=False
-        user=update.effective_user
-        uname=f"@{user.username}" if user.username else f"{user.first_name} (id:{user.id})"
-        bug_text=txt
-        if ADMIN_CHAT_ID:
-            try:
-                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"📩 Баг-репорт от {uname}:\n\n{bug_text}\n\nChatID: {update.effective_chat.id}")
-                await update.message.reply_text("✅ Отправил админу! Спасибо за репорт 👑",reply_markup=MAIN_KB)
-            except Exception as e:
-                await update.message.reply_text(f"❌ Не смог отправить админу: {e}\nНапиши напрямую t.me/MakSon4ikk_228",reply_markup=MAIN_KB)
-        else:
-            btn=InlineKeyboardButton("👑 Админ",url="https://t.me/MakSon4ikk_228")
-            kb=InlineKeyboardMarkup([[btn]])
-            await update.message.reply_text(f"Админ пока не установил ID. Перешли ему это вручную:\n{bug_text}",reply_markup=MAIN_KB)
-            await update.message.reply_text("Жми 👇",reply_markup=kb)
-        return
-    if 'админу' in low:
-        context.user_data['awaiting']=False
-        context.user_data['awaiting_admin']=True
-        await update.message.reply_text("✍️ Напиши сообщение про баг — я перешлю админу (следующее сообщение уйдет ему)",reply_markup=MAIN_KB)
-        return
-    if 'помощ' in low:
-        context.user_data['awaiting']=False
-        await help_h(update,context)
-        return
-    if 'модель' in low:
-        context.user_data['awaiting']=False
-        await model_h(update,context)
-        return
-    if 'пинг' in low:
-        context.user_data['awaiting']=False
-        await ping_h(update,context)
-        return
-    if 'стата' in low:
-        context.user_data['awaiting']=False
-        await stats_h(update,context)
-        return
-    if 'время' in low:
-        context.user_data['awaiting']=False
-        await time_h(update,context)
-        return
-
-    # Теперь проверяем картинку
     awaiting=context.user_data.get('awaiting',False)
     is_img_req=awaiting
     if not is_img_req:
@@ -540,6 +485,7 @@ async def text_h(update,context):
     if is_img_req:
         pr=txt
         if awaiting:
+            pr=txt
             context.user_data['awaiting']=False
         else:
             for w in ['нарисуй','нарисовать','сгенерируй']:
@@ -558,19 +504,76 @@ async def text_h(update,context):
             return
         await context.bot.send_chat_action(update.effective_chat.id,'upload_photo')
         await update.message.reply_text(f"Рисую: {pr}... ⏳🎨",reply_markup=MAIN_KB)
-        im=await gen_img_async(pr)
+        im=gen_img(pr)
         if im:
             stats['imgs']+=1
             await update.message.reply_photo(photo=im,caption=f"Готово! {pr}",reply_markup=MAIN_KB)
         else:
             await update.message.reply_text("Не вышло.",reply_markup=MAIN_KB)
         return
+    if 'сколько времени' in low or 'который час' in low:
+        await update.message.reply_text(fmt_full(),reply_markup=MAIN_KB)
+        return
+    if '🕒 время' in low or 'точное время' in low:
+        await update.message.reply_text(fmt_full(),reply_markup=MAIN_KB)
+        return
+    if 'инфо' in low:
+        await about_h(update,context)
+        return
+    if 'создатель' in low or 'кто тебя сделал' in low:
+        btn=InlineKeyboardButton("👑 Профиль",url="https://t.me/MakSon4ikk_228")
+        kb=InlineKeyboardMarkup([[btn]])
+        await update.message.reply_text("Меня создал Максим @MakSon4ikk_228!",reply_markup=MAIN_KB)
+        await update.message.reply_text("Профиль 👇",reply_markup=kb)
+        return
+    if 'забыть' in low:
+        clear_mem(update.effective_chat.id)
+        context.user_data['awaiting']=False
+        await update.message.reply_text("Память очищена!",reply_markup=MAIN_KB)
+        return
+    # Если юзер пишет баг-репорт админу
+    if context.user_data.get('awaiting_admin'):
+        context.user_data['awaiting_admin']=False
+        user=update.effective_user
+        uname=f"@{user.username}" if user.username else f"{user.first_name} (id:{user.id})"
+        bug_text=txt
+        # отправляем админу
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"📩 Баг-репорт от {uname}:\n\n{bug_text}\n\nChatID: {update.effective_chat.id}")
+                await update.message.reply_text("✅ Отправил админу! Спасибо за репорт 👑",reply_markup=MAIN_KB)
+            except Exception as e:
+                await update.message.reply_text(f"❌ Не смог отправить админу: {e}\nНапиши напрямую @MakSon4ikk_228",reply_markup=MAIN_KB)
+        else:
+            btn=InlineKeyboardButton("👑 Админ",url="https://t.me/MakSon4ikk_228")
+            kb=InlineKeyboardMarkup([[btn]])
+            await update.message.reply_text(f"Админ пока не установил ID. Перешли ему это вручную:\n{bug_text}",reply_markup=MAIN_KB)
+            await update.message.reply_text("Жми 👇",reply_markup=kb)
+        return
+
+    if 'админу' in low:
+        context.user_data['awaiting_admin']=True
+        await update.message.reply_text("✍️ Напиши сообщение про баг — я перешлю админу @MakSon4ikk_228 (следующее сообщение уйдет ему)",reply_markup=MAIN_KB)
+        return
+    if 'помощ' in low:
+        await help_h(update,context)
+        return
+    if 'модель' in low:
+        await model_h(update,context)
+        return
+    if 'пинг' in low:
+        await ping_h(update,context)
+        return
+    if 'стата' in low:
+        await stats_h(update,context)
+        return
+    if 'время' in low:
+        await time_h(update,context)
+        return
     await context.bot.send_chat_action(update.effective_chat.id,'typing')
     ans=await ask(update.effective_chat.id,txt,None)
     for p in split(ans):
         await update.message.reply_text(p,reply_markup=MAIN_KB)
-
-
 
 async def photo_h(update,context):
     if spam(update.effective_user.id):
@@ -611,7 +614,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v74 FIX GEN FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v73 GLITCH-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -621,7 +624,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v74 FIX GEN FIXED HELP+ANTIGPT запуск')
+    print('Даун v73 GLITCH-FIX FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
