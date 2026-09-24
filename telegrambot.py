@@ -356,13 +356,47 @@ async def ask(cid,text,b64img=None):
             else:
                 out.append(m)
         return out
+
     if b64img:
         stats['photos']+=1
-        clean_mem=sanitize_mems(mem, for_vision=True)
-        msgs=[{'role':'system','content':SYS+"\n"+info}]
-        msgs.extend(clean_mem)
-        msgs.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото?'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
-        models=[VISION_MODEL,VISION_MODEL2,FALL1,FALL2,FALL3,FALL4,TEXT_MODEL]
+        # Для фото - сначала пробуем только ВИЖЕН модели с листами
+        clean_mem_vision=sanitize_mems(mem, for_vision=True)
+        msgs_vision=[{'role':'system','content':SYS+"\n"+info}]
+        msgs_vision.extend(clean_mem_vision)
+        msgs_vision.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото?'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
+        vision_models=[VISION_MODEL,VISION_MODEL2,FALL1,FALL2,FALL3,FALL4]
+        text_models=[TEXT_MODEL,TEXT_FALL]
+        last="err"
+        # 1. Пробуем вижен
+        for m in vision_models:
+            try:
+                comp=client.chat.completions.create(model=m,messages=msgs_vision,temperature=0.75,max_tokens=2500)
+                ans=clean_ai(comp.choices[0].message.content)
+                add_mem(cid,'user',text or '[фото]')
+                add_mem(cid,'assistant',ans)
+                return ans
+            except Exception as e:
+                last=str(e)[:300]
+                logger.error(f"Groq VISION {m} fail: {e}")
+                continue
+        # 2. Если все вижен легли - фолбек на текст с санитайзед памятью
+        clean_mem_text=sanitize_mems(mem, for_vision=False)
+        msgs_text=[{'role':'system','content':SYS+"\n"+info}]
+        msgs_text.extend(clean_mem_text)
+        msgs_text.append({'role':'user','content':(text or 'Что на фото?')+" [фото приложено, опиши что видишь]"})
+        for m in text_models:
+            try:
+                comp=client.chat.completions.create(model=m,messages=msgs_text,temperature=0.75,max_tokens=2500)
+                ans=clean_ai(comp.choices[0].message.content)
+                add_mem(cid,'user',text or '[фото]')
+                add_mem(cid,'assistant',ans)
+                return ans
+            except Exception as e:
+                last=str(e)[:300]
+                logger.error(f"Groq TEXT fallback {m} fail: {e}")
+                continue
+        stats['errs']+=1
+        return f'Ошибка: {last[:300]}'
     else:
         if re.match(r'^[\d\s\+\-\*\/\(\)]+$',text):
             if len(text)<80 and any(c in text for c in '+-*'):
@@ -378,21 +412,20 @@ async def ask(cid,text,b64img=None):
         msgs.extend(clean_mem)
         msgs.append({'role':'user','content':text})
         models=[TEXT_MODEL,TEXT_FALL,FALL1]
-    last="err"
-    for m in models:
-        try:
-            comp=client.chat.completions.create(model=m,messages=msgs,temperature=0.75,max_tokens=2500)
-            ans=clean_ai(comp.choices[0].message.content)
-            add_mem(cid,'user',text or '[фото]')
-            add_mem(cid,'assistant',ans)
-            return ans
-        except Exception as e:
-            last=str(e)[:300]
-            logger.error(f"Groq model {m} fail: {e}")
-            continue
-    stats['errs']+=1
-    return f'Ошибка: {last[:300]}'
-
+        last="err"
+        for m in models:
+            try:
+                comp=client.chat.completions.create(model=m,messages=msgs,temperature=0.75,max_tokens=2500)
+                ans=clean_ai(comp.choices[0].message.content)
+                add_mem(cid,'user',text or '[фото]')
+                add_mem(cid,'assistant',ans)
+                return ans
+            except Exception as e:
+                last=str(e)[:300]
+                logger.error(f"Groq model {m} fail: {e}")
+                continue
+        stats['errs']+=1
+        return f'Ошибка: {last[:300]}'
 
 
 async def start_h(update,context):
@@ -433,7 +466,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v75 MEM-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v76 PHOTO-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -643,7 +676,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v75 MEM-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v76 PHOTO-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -653,7 +686,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v75 MEM-FIX FIXED HELP+ANTIGPT запуск')
+    print('Даун v76 PHOTO-FIX FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
