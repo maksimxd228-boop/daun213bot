@@ -39,12 +39,12 @@ if not GROQ_KEY:
     GROQ_KEY='ВСТАВЬ_GROQ'
 
 TEXT_MODEL='openai/gpt-oss-120b'
-VISION_MODEL='qwen/qwen3.6-27b'
-VISION_MODEL2='qwen/qwen3-32b'
-FALL1='meta-llama/llama-4-scout-17b-16e-instruct'
+VISION_MODEL='meta-llama/llama-4-scout-17b-16e-instruct'
+VISION_MODEL2='meta-llama/llama-4-maverick-17b-128e-instruct'
+FALL1='meta-llama/llama-3.2-90b-vision-preview'
 FALL2='meta-llama/llama-3.2-11b-vision-preview'
-FALL3='meta-llama/llama-3.2-90b-vision-preview'
-FALL4='llava-v1.5-7b-4096-preview'
+FALL3='llava-v1.5-7b-4096-preview'
+FALL4='meta-llama/llama-4-scout-17b-16e-instruct'
 PORT=int(os.getenv('PORT',10000))
 MAX_HIST=16
 MAX_CHATS=150
@@ -466,7 +466,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v76 PHOTO-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v77 VISION-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -648,11 +648,28 @@ async def photo_h(update,context):
         f=await ph.get_file()
         bio=BytesIO()
         await f.download_to_memory(bio)
-        b=b64(bio.getvalue())
+        # Сжимаем фото до 1024px чтобы Groq не падал
+        try:
+            from PIL import Image
+            bio.seek(0)
+            img=Image.open(bio)
+            if img.mode in ('RGBA','P'):
+                img=img.convert('RGB')
+            max_side=1024
+            if max(img.size) > max_side:
+                img.thumbnail((max_side,max_side), Image.LANCZOS)
+            out=BytesIO()
+            img.save(out, format='JPEG', quality=80, optimize=True)
+            b=b64(out.getvalue())
+        except Exception as e:
+            logger.warning(f"Compress fail {e}, using original")
+            bio.seek(0)
+            b=b64(bio.getvalue())
         ans=await ask(update.effective_chat.id,cap,b)
         for p in split(ans):
             await update.message.reply_text(p,reply_markup=MAIN_KB)
-    except:
+    except Exception as e:
+        logger.error(f"photo_h error {e}")
         await update.message.reply_text('Ошибка фото',reply_markup=MAIN_KB)
 
 async def doc_h(update,context):
@@ -663,11 +680,26 @@ async def doc_h(update,context):
         f=await doc.get_file()
         bio=BytesIO()
         await f.download_to_memory(bio)
-        b=b64(bio.getvalue())
+        try:
+            from PIL import Image
+            bio.seek(0)
+            img=Image.open(bio)
+            if img.mode in ('RGBA','P'):
+                img=img.convert('RGB')
+            max_side=1024
+            if max(img.size) > max_side:
+                img.thumbnail((max_side,max_side), Image.LANCZOS)
+            out=BytesIO()
+            img.save(out, format='JPEG', quality=80, optimize=True)
+            b=b64(out.getvalue())
+        except:
+            bio.seek(0)
+            b=b64(bio.getvalue())
         ans=await ask(update.effective_chat.id,doc.file_name,b)
         for p in split(ans):
             await update.message.reply_text(p,reply_markup=MAIN_KB)
-    except:
+    except Exception as e:
+        logger.error(f"doc_h error {e}")
         await update.message.reply_text('Ошибка',reply_markup=MAIN_KB)
 
 async def sticker_h(update,context):
@@ -676,7 +708,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v76 PHOTO-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v77 VISION-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -686,7 +718,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v76 PHOTO-FIX FIXED HELP+ANTIGPT запуск')
+    print('Даун v77 VISION-FIX FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
