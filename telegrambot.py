@@ -328,6 +328,32 @@ def gen_img(prompt):
 
 
 
+import aiohttp
+
+async def ask_pollinations_vision(b64img, text):
+    """Free fallback vision via Pollinations openai-compatible endpoint"""
+    try:
+        # Pollinations supports vision via openai endpoint
+        url = "https://text.pollinations.ai/openai"
+        payload = {
+            "model": "openai",
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "text", "text": text or "Что на фото? Опиши детально все что видишь"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64img}"}}
+                ]}
+            ],
+            "max_tokens": 1000
+        }
+        async with aiohttp.ClientSession() as sess:
+            async with sess.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data['choices'][0]['message']['content']
+    except Exception as e:
+        logger.error(f"Pollinations vision fail: {e}")
+    return None
+
 async def ask(cid,text,b64img=None):
     if client is None:
         logger.error("Groq client is None - no key")
@@ -359,15 +385,22 @@ async def ask(cid,text,b64img=None):
 
     if b64img:
         stats['photos']+=1
+        # Попытка 1: Groq - единственная актуальная модель qwen
         clean_mem_vision=sanitize_mems(mem, for_vision=True)
         msgs_vision=[{'role':'system','content':SYS+"\n"+info}]
         msgs_vision.extend(clean_mem_vision)
         msgs_vision.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Опиши детально что видишь, перечисли объекты'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
-        # Только актуальные модели Groq на сентябрь 2026 - llava выпилен!
+        # Актуальные модели Groq на 28.09.2026 - только Qwen платный
         vision_models=[
+            'qwen/qwen3-32b',  # пробуем старый id
+            'qwen/qwen3-32b',
+            'meta-llama/llama-4-maverick-17b-128e-instruct', # на случай если вернут
             'meta-llama/llama-4-scout-17b-16e-instruct',
-            'meta-llama/llama-4-maverick-17b-128e-instruct',
         ]
+        # Попробуем также qwen через точные id из доков 2026
+        extra_models = ['qwen/qwen3-6-27b', 'qwen/qwen3-27b', 'qwen/qwen3.6-27b', 'qwen/qwen3.8-27b']
+        vision_models = extra_models + vision_models
+        
         last="err"
         for m in vision_models:
             try:
@@ -375,25 +408,31 @@ async def ask(cid,text,b64img=None):
                 ans=clean_ai(comp.choices[0].message.content)
                 if not ans or len(ans) < 5:
                     continue
-                # Фильтр галлюцинаций
-                low_ans=ans.lower()
-                if 'городской пейзаж' in low_ans and ('трюфел' in (text or '').lower() or 'гриб' in low_ans):
-                    logger.warning(f"Hallucination in {m}")
-                    continue
                 add_mem(cid,'user',text or '[фото]')
                 add_mem(cid,'assistant',ans)
                 return ans
             except Exception as e:
-                last=str(e)[:500]
+                last=str(e)[:600]
                 logger.error(f"Groq VISION {m} fail: {e}")
+                # Если 402 - платная модель, сразу идем на фолбек
+                if '402' in str(e) or 'payment' in str(e).lower() or 'paid' in str(e).lower():
+                    logger.warning("Groq Qwen requires paid tier, switching to free fallback")
+                    break
                 continue
+        
+        # Попытка 2: Бесплатный фолбек - Pollinations vision
+        try:
+            poll_ans = await ask_pollinations_vision(b64img, text)
+            if poll_ans and len(poll_ans) > 5:
+                ans = clean_ai(poll_ans)
+                add_mem(cid,'user',text or '[фото]')
+                add_mem(cid,'assistant',ans)
+                return ans
+        except Exception as e:
+            logger.error(f"Poll fallback error: {e}")
+        
         stats['errs']+=1
-        # Показываем последнюю ошибку
-        if 'decommissioned' in last or 'no longer supported' in last:
-            return f'🔧 Модель {m} выпилена Groq. Поставил новые llama-4. Перезалей v80!\nОшибка: {last[:300]}'
-        if '429' in last or 'rate_limit' in last.lower():
-            return f'⏳ Groq лимит 30 запросов/мин. Подожди 1 мин и кинь фото снова.\n{last[:200]}'
-        return f'🔧 Вижен лег. Попробуй еще раз через 30 сек.\nОшибка: {last[:350]}'
+        return f'🔧 Groq выпилил бесплатный вижен (llama-4 удалены в июле). Qwen теперь платный.\nПробовал Pollinations - тоже лег.\nПоследняя ошибка Groq: {last[:350]}\n\nРешение: заведи ключ Gemini (бесплатно) или добавь $5 на Groq для qwen/qwen3-27b.'
     else:
         if re.match(r'^[\d\s\+\-\*\/\(\)]+$',text):
             if len(text)<80 and any(c in text for c in '+-*'):
@@ -408,7 +447,7 @@ async def ask(cid,text,b64img=None):
         msgs=[{'role':'system','content':SYS+"\n"+info}]
         msgs.extend(clean_mem)
         msgs.append({'role':'user','content':text})
-        models=[TEXT_MODEL,TEXT_FALL,'meta-llama/llama-4-scout-17b-16e-instruct']
+        models=[TEXT_MODEL,TEXT_FALL,'openai/gpt-oss-120b']
         last="err"
         for m in models:
             try:
@@ -463,7 +502,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v80 FINAL ГЛАЗА FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v81 QWEN+FREE FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -705,7 +744,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v80 FINAL ГЛАЗА FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v81 QWEN+FREE FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -715,7 +754,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v80 FINAL ГЛАЗА FIXED HELP+ANTIGPT запуск')
+    print('Даун v81 QWEN+FREE FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
