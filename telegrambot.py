@@ -41,10 +41,10 @@ if not GROQ_KEY:
 TEXT_MODEL='openai/gpt-oss-120b'
 VISION_MODEL='meta-llama/llama-4-scout-17b-16e-instruct'
 VISION_MODEL2='meta-llama/llama-4-maverick-17b-128e-instruct'
-FALL1='meta-llama/llama-3.2-90b-vision-preview'
-FALL2='meta-llama/llama-3.2-11b-vision-preview'
-FALL3='llava-v1.5-7b-4096-preview'
-FALL4='meta-llama/llama-4-scout-17b-16e-instruct'
+FALL1='meta-llama/llama-4-scout-17b-16e-instruct'
+FALL2='meta-llama/llama-4-maverick-17b-128e-instruct'
+FALL3='meta-llama/llama-4-scout-17b-16e-instruct'
+FALL4='meta-llama/llama-4-maverick-17b-128e-instruct'
 PORT=int(os.getenv('PORT',10000))
 MAX_HIST=16
 MAX_CHATS=150
@@ -362,35 +362,38 @@ async def ask(cid,text,b64img=None):
         clean_mem_vision=sanitize_mems(mem, for_vision=True)
         msgs_vision=[{'role':'system','content':SYS+"\n"+info}]
         msgs_vision.extend(clean_mem_vision)
-        msgs_vision.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Опиши детально что видишь'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
-        # Только реальные вижен модели Groq
+        msgs_vision.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Опиши детально что видишь, перечисли объекты'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
+        # Только актуальные модели Groq на сентябрь 2026 - llava выпилен!
         vision_models=[
             'meta-llama/llama-4-scout-17b-16e-instruct',
             'meta-llama/llama-4-maverick-17b-128e-instruct',
-            'meta-llama/llama-3.2-90b-vision-preview',
-            'meta-llama/llama-3.2-11b-vision-preview',
-            'llava-v1.5-7b-4096-preview'
         ]
         last="err"
         for m in vision_models:
             try:
-                comp=client.chat.completions.create(model=m,messages=msgs_vision,temperature=0.6,max_tokens=2000)
+                comp=client.chat.completions.create(model=m,messages=msgs_vision,temperature=0.5,max_tokens=2000)
                 ans=clean_ai(comp.choices[0].message.content)
-                # Фильтр галлюцинаций города
+                if not ans or len(ans) < 5:
+                    continue
+                # Фильтр галлюцинаций
                 low_ans=ans.lower()
-                if 'городской пейзаж' in low_ans and 'трюфел' in (text or '').lower():
-                    logger.warning(f"Hallucination detected in {m}, retrying")
+                if 'городской пейзаж' in low_ans and ('трюфел' in (text or '').lower() or 'гриб' in low_ans):
+                    logger.warning(f"Hallucination in {m}")
                     continue
                 add_mem(cid,'user',text or '[фото]')
                 add_mem(cid,'assistant',ans)
                 return ans
             except Exception as e:
-                last=str(e)[:400]
+                last=str(e)[:500]
                 logger.error(f"Groq VISION {m} fail: {e}")
                 continue
-        # Все вижен легли - не вызываем текстовую которая скажет "не могу смотреть"
         stats['errs']+=1
-        return f'🔧 Вижен сейчас лег (Groq перегруз). Попробуй через 1-2 мин кинуть фото снова.\nОшибка: {last[:250]}\nЕсли 429 - подожди минуту, лимит Groq.'
+        # Показываем последнюю ошибку
+        if 'decommissioned' in last or 'no longer supported' in last:
+            return f'🔧 Модель {m} выпилена Groq. Поставил новые llama-4. Перезалей v80!\nОшибка: {last[:300]}'
+        if '429' in last or 'rate_limit' in last.lower():
+            return f'⏳ Groq лимит 30 запросов/мин. Подожди 1 мин и кинь фото снова.\n{last[:200]}'
+        return f'🔧 Вижен лег. Попробуй еще раз через 30 сек.\nОшибка: {last[:350]}'
     else:
         if re.match(r'^[\d\s\+\-\*\/\(\)]+$',text):
             if len(text)<80 and any(c in text for c in '+-*'):
@@ -460,7 +463,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v78 FINAL-VISION FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v80 FINAL ГЛАЗА FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -702,7 +705,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v78 FINAL-VISION FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v80 FINAL ГЛАЗА FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -712,7 +715,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v78 FINAL-VISION FIXED HELP+ANTIGPT запуск')
+    print('Даун v80 FINAL ГЛАЗА FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
