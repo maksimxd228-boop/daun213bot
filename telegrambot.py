@@ -328,12 +328,11 @@ def gen_img(prompt):
 
 
 
-import aiohttp
+import json, urllib.request, urllib.error
 
-async def ask_pollinations_vision(b64img, text):
-    """Free fallback vision via Pollinations openai-compatible endpoint"""
+def ask_pollinations_vision_sync(b64img, text):
+    """Free fallback vision via Pollinations - no extra deps"""
     try:
-        # Pollinations supports vision via openai endpoint
         url = "https://text.pollinations.ai/openai"
         payload = {
             "model": "openai",
@@ -345,11 +344,11 @@ async def ask_pollinations_vision(b64img, text):
             ],
             "max_tokens": 1000
         }
-        async with aiohttp.ClientSession() as sess:
-            async with sess.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data['choices'][0]['message']['content']
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'}, method='POST')
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode())
+                return data['choices'][0]['message']['content']
     except Exception as e:
         logger.error(f"Pollinations vision fail: {e}")
     return None
@@ -420,9 +419,9 @@ async def ask(cid,text,b64img=None):
                     break
                 continue
         
-        # Попытка 2: Бесплатный фолбек - Pollinations vision
+        # Попытка 2: Бесплатный фолбек - Pollinations vision (без aiohttp)
         try:
-            poll_ans = await ask_pollinations_vision(b64img, text)
+            poll_ans = ask_pollinations_vision_sync(b64img, text)
             if poll_ans and len(poll_ans) > 5:
                 ans = clean_ai(poll_ans)
                 add_mem(cid,'user',text or '[фото]')
@@ -502,7 +501,7 @@ async def about_h(update,context):
     first=fmt_short(FIRST)
     t=fmt_full()
     s=get_stats()
-    txt=f"🤖 Даун v81 QWEN+FREE FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
+    txt=f"🤖 Даун v82 DEPLOY-FIX FIXED HELP+ANTIGPT\n{info}\n🚀 {first}\n{t}\n⏱ {up} мин\n{s}"
     await update.message.reply_text(txt,reply_markup=MAIN_KB)
 
 async def model_h(update,context):
@@ -744,7 +743,7 @@ async def sticker_h(update,context):
 app_flask=Flask(__name__)
 @app_flask.route('/')
 def home():
-    return f"Даун v81 QWEN+FREE FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
+    return f"Даун v82 DEPLOY-FIX FIXED HELP+ANTIGPT жив! {fmt_short(FIRST)} | {fmt_full()} | {get_stats()}"
 
 @app_flask.route('/health')
 def health():
@@ -754,7 +753,7 @@ def run_flask():
     app_flask.run(host='0.0.0.0',port=PORT)
 
 def main():
-    print('Даун v81 QWEN+FREE FIXED HELP+ANTIGPT запуск')
+    print('Даун v82 DEPLOY-FIX FIXED HELP+ANTIGPT запуск')
     t=threading.Thread(target=run_flask)
     t.daemon=True
     t.start()
