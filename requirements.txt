@@ -1,3 +1,5 @@
-python-telegram-bot==21.6
-groq
-flask
+python-telegram-bot==20.7
+groq==0.13.0
+requests
+Pillow
+python-dotenv
