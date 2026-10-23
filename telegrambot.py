@@ -1,5 +1,5 @@
 
-import os, re, logging, datetime, pytz
+import os, re, logging, datetime
 from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -117,8 +117,7 @@ def clean_ai(t):
     return t.strip()[:2000]
 
 def get_time():
-    utc = datetime.datetime.now(pytz.UTC)
-    riga = utc.astimezone(ZoneInfo("Europe/Riga"))
+    riga = datetime.datetime.now(ZoneInfo("Europe/Riga"))
     return riga.strftime('%H:%M:%S %d.%m.%Y')
 
 async def ask(cid, text):
