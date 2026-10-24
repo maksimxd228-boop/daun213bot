@@ -39,8 +39,8 @@ if not GROQ_KEY:
     GROQ_KEY='ВСТАВЬ_GROQ'
 
 TEXT_MODEL='llama-3.3-70b-versatile'
-VISION_MODEL='llama-3.2-11b-vision-preview'
-VISION_MODEL2='llama-3.2-90b-vision-preview'
+VISION_MODEL='meta-llama/llama-4-maverick-17b-128e-instruct'
+VISION_MODEL2='meta-llama/llama-4-scout-17b-16e-instruct'
 FALL1='llama-3.1-8b-instant'
 FALL2='mixtral-8x7b-32768'
 FALL3='gemma2-9b-it'
@@ -462,11 +462,11 @@ async def ask(cid,text,b64img=None):
         'llama-3.1-8b-instant',
         'mixtral-8x7b-32768',
         'gemma2-9b-it',
-        'llama3-8b-8192',
+        'llama-3.1-8b-instant',
     ]
     VISION_MODELS_LOCAL = [
-        'llama-3.2-11b-vision-preview',
-        'llama-3.2-90b-vision-preview',
+        'meta-llama/llama-4-maverick-17b-128e-instruct',
+        'meta-llama/llama-4-scout-17b-16e-instruct',
         'qwen/qwen3-32b',
     ]
 
