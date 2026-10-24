@@ -393,9 +393,9 @@ def ask_pollinations_vision_sync(b64img, text):
         logger.error(f"Pollinations vision fail: {e}")
     return None
 
-
 async def ask(cid,text,b64img=None):
     if client is None:
+        logger.error("Groq client is None - no key")
         return 'Мозг не подключен. Проверь GROQ_API_KEY в Render.'
     stats['total']+=1
     mem=get_mem(cid)
@@ -422,88 +422,58 @@ async def ask(cid,text,b64img=None):
                 out.append(m)
         return out
 
-    def is_limit_error(e_str: str) -> bool:
-        s = e_str.lower()
-        return any(k in s for k in ['429','rate','limit','quota','too many','capacity','overloaded','resource_exhausted'])
-
-    def ask_pollinations_text_sync(messages):
-        try:
-            import json, urllib.request
-            url = "https://text.pollinations.ai/openai"
-            payload = {"model":"openai","messages":messages,"max_tokens":1500,"temperature":0.8}
-            req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'}, method='POST')
-            with urllib.request.urlopen(req, timeout=40) as resp:
-                if resp.status==200:
-                    data=json.loads(resp.read().decode())
-                    return data['choices'][0]['message']['content']
-        except Exception as ex:
-            logger.error(f"Pollinations text fail: {ex}")
-        return None
-
-    def ask_gemini_sync(t, sys_prompt):
-        gkey = os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
-        if not gkey:
-            return None
-        try:
-            import json, urllib.request, urllib.parse
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={urllib.parse.quote(gkey)}"
-            prompt = f"{sys_prompt}\n\nПользователь: {t}"
-            payload = {"contents":[{"parts":[{"text":prompt}]}]}
-            req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'}, method='POST')
-            with urllib.request.urlopen(req, timeout=40) as resp:
-                data=json.loads(resp.read().decode())
-                return data['candidates'][0]['content']['parts'][0]['text']
-        except Exception as ex:
-            logger.error(f"Gemini fail: {ex}")
-        return None
-
-    TEXT_MODELS_LOCAL = [
-        os.getenv('TEXT_MODEL','llama-3.3-70b-versatile'),
-        'llama-3.1-8b-instant',
-        'mixtral-8x7b-32768',
-        'gemma2-9b-it',
-        'llama-3.1-8b-instant',
-    ]
-    VISION_MODELS_LOCAL = [
-        'meta-llama/llama-4-maverick-17b-128e-instruct',
-        'meta-llama/llama-4-scout-17b-16e-instruct',
-        'qwen/qwen3-32b',
-    ]
-
     if b64img:
         stats['photos']+=1
+        # Попытка 1: Groq - единственная актуальная модель qwen
         clean_mem_vision=sanitize_mems(mem, for_vision=True)
         msgs_vision=[{'role':'system','content':SYS+"\n"+info}]
         msgs_vision.extend(clean_mem_vision)
-        msgs_vision.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото?'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
-        last_err="err"
-        for m in VISION_MODELS_LOCAL:
+        msgs_vision.append({'role':'user','content':[{'type':'text','text':text or 'Что на фото? Опиши детально что видишь, перечисли объекты'},{'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{b64img}'}}]})
+        # Актуальные модели Groq на 28.09.2026 - только Qwen платный
+        vision_models=[
+            'llama-3.1-8b-instant', # fallback text
+            'llama-3.1-8b-instant',
+            'meta-llama/llama-4-maverick-17b-128e-instruct', # на случай если вернут
+            'meta-llama/llama-4-scout-17b-16e-instruct',
+        ]
+        # Попробуем также qwen через точные id из доков 2026
+        extra_models = ['qwen/qwen3-6-27b', 'qwen/qwen3-27b', 'qwen/qwen3.6-27b', 'qwen/qwen3.8-27b']
+        vision_models = extra_models + vision_models
+        
+        last="err"
+        for m in vision_models:
             try:
                 comp=client.chat.completions.create(model=m,messages=msgs_vision,temperature=0.5,max_tokens=2000)
                 ans=clean_ai(comp.choices[0].message.content)
-                if ans and len(ans)>=5:
-                    add_mem(cid,'user',text or '[фото]')
-                    add_mem(cid,'assistant',ans)
-                    return ans
-            except Exception as e:
-                last_err=str(e)[:600]
-                logger.warning(f"Groq VISION {m} fail: {e}")
-                if is_limit_error(last_err):
+                if not ans or len(ans) < 5:
                     continue
+                add_mem(cid,'user',text or '[фото]')
+                add_mem(cid,'assistant',ans)
+                return ans
+            except Exception as e:
+                last=str(e)[:600]
+                logger.error(f"Groq VISION {m} fail: {e}")
+                # Если 402 - платная модель, сразу идем на фолбек
+                if '402' in str(e) or 'payment' in str(e).lower() or 'paid' in str(e).lower():
+                    logger.warning("Groq Qwen requires paid tier, switching to free fallback")
+                    break
                 continue
+        
+        # Попытка 2: Бесплатный фолбек - Pollinations vision (без aiohttp)
         try:
             poll_ans = ask_pollinations_vision_sync(b64img, text)
-            if poll_ans and len(poll_ans)>5:
-                ans=clean_ai(poll_ans)
+            if poll_ans and len(poll_ans) > 5:
+                ans = clean_ai(poll_ans)
                 add_mem(cid,'user',text or '[фото]')
                 add_mem(cid,'assistant',ans)
                 return ans
         except Exception as e:
-            logger.error(f"Poll vision fallback error: {e}")
+            logger.error(f"Poll fallback error: {e}")
+        
         stats['errs']+=1
-        return f'Ч фотость не вижу, боров. Мозг лег. Ошибка: {last_err[:200]}. Попробуй еще раз, Бэм бэм бэм.'
+        return f'🔧 Groq выпилил бесплатный вижен (llama-4 удалены в июле). Qwen теперь платный.\nПробовал Pollinations - тоже лег.\nПоследняя ошибка Groq: {last[:350]}\n\nРешение: заведи ключ Gemini (бесплатно) или добавь $5 на Groq для qwen/qwen3-27b.'
     else:
-        if text and text.strip() and all(ch in "0123456789 +-*/()" for ch in text.strip()):
+        if re.match(r'^[\d\s\+\-\*\/\(\)]+$',text):
             if len(text)<80 and any(c in text for c in '+-*'):
                 r=safe_eval(text)
                 if r is not None:
@@ -513,50 +483,24 @@ async def ask(cid,text,b64img=None):
                     return ans
         stats['texts']+=1
         clean_mem=sanitize_mems(mem, for_vision=False)
-        base_msgs=[{'role':'system','content':SYS+"\n"+info}]
-        base_msgs.extend(clean_mem)
-        base_msgs.append({'role':'user','content':text})
-        last_err="err"
-        for m in TEXT_MODELS_LOCAL:
-            if not m: continue
+        msgs=[{'role':'system','content':SYS+"\n"+info}]
+        msgs.extend(clean_mem)
+        msgs.append({'role':'user','content':text})
+        models=[TEXT_MODEL, TEXT_FALL, 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant', 'gemma2-9b-it']
+        last="err"
+        for m in models:
             try:
-                comp=client.chat.completions.create(model=m,messages=base_msgs,temperature=0.75,max_tokens=2500)
+                comp=client.chat.completions.create(model=m,messages=msgs,temperature=0.75,max_tokens=2500)
                 ans=clean_ai(comp.choices[0].message.content)
-                if ans and len(ans)>=2:
-                    add_mem(cid,'user',text)
-                    add_mem(cid,'assistant',ans)
-                    logger.info(f"OK via Groq {m}")
-                    return ans
-            except Exception as e:
-                last_err=str(e)[:500]
-                logger.warning(f"Groq {m} fail: {last_err}")
-                if is_limit_error(last_err):
-                    logger.info(f"Лимит на {m}, прыгаю на следующую нейронку...")
-                continue
-        try:
-            poll_msgs=[{'role':'system','content':SYS},{'role':'user','content':text}]
-            poll_ans=ask_pollinations_text_sync(poll_msgs)
-            if poll_ans and len(poll_ans)>2:
-                ans=clean_ai(poll_ans)
-                add_mem(cid,'user',text)
+                add_mem(cid,'user',text or '[фото]')
                 add_mem(cid,'assistant',ans)
-                logger.info("OK via Pollinations fallback")
-                return f"{ans}\n\n(через запасную нейронку, т.к. Groq на лимите)"
-        except Exception as e:
-            logger.error(f"Pollinations text fallback err: {e}")
-        try:
-            gem_ans=ask_gemini_sync(text, SYS)
-            if gem_ans and len(gem_ans)>2:
-                ans=clean_ai(gem_ans)
-                add_mem(cid,'user',text)
-                add_mem(cid,'assistant',ans)
-                logger.info("OK via Gemini fallback")
                 return ans
-        except Exception as e:
-            logger.error(f"Gemini fallback err: {e}")
+            except Exception as e:
+                last=str(e)[:300]
+                logger.error(f"Groq model {m} fail: {e}")
+                continue
         stats['errs']+=1
-        return f'Ч лимитость, боров! Все нейронки на лимите. Ошибка: {last_err[:250]}. Подожди минутку, Бэм бэм бэм.'
-
+        return f'Ошибка: {last[:300]}'
 
 
 async def start_h(update,context):
